@@ -1,5 +1,6 @@
-package com.qmedic.wearmodule;
+package com.qmedic.weartest;
 
+import android.app.Activity;
 import android.content.Context;
 import android.hardware.Sensor;
 import android.hardware.SensorEvent;
@@ -9,6 +10,7 @@ import android.os.Bundle;
 import android.support.wearable.activity.WearableActivity;
 import android.support.wearable.view.WatchViewStub;
 import android.util.Log;
+import android.view.WindowManager;
 import android.widget.TextView;
 
 import com.google.android.gms.common.ConnectionResult;
@@ -20,6 +22,7 @@ import com.google.android.gms.wearable.PutDataMapRequest;
 import com.google.android.gms.wearable.PutDataRequest;
 import com.google.android.gms.wearable.Wearable;
 
+import java.io.File;
 import java.io.FileInputStream;
 import java.io.FileOutputStream;
 import java.io.InputStream;
@@ -31,7 +34,7 @@ import java.util.Locale;
 import java.util.zip.GZIPInputStream;
 import java.util.zip.GZIPOutputStream;
 
-public class MainActivity extends WearableActivity implements SensorEventListener {
+public class MainActivity extends Activity implements SensorEventListener,GoogleApiClient.ConnectionCallbacks, GoogleApiClient.OnConnectionFailedListener {
 
     private TextView mTextView;
     private static final String TAG = "WEAR TEST";
@@ -65,6 +68,7 @@ public class MainActivity extends WearableActivity implements SensorEventListene
             mSensorMgr.registerListener(this, mAccel, SensorManager.SENSOR_DELAY_NORMAL);
         }
 
+
         mGoogleApiClient = new GoogleApiClient.Builder(this)
                 .addConnectionCallbacks(new GoogleApiClient.ConnectionCallbacks() {
                     @Override
@@ -86,6 +90,9 @@ public class MainActivity extends WearableActivity implements SensorEventListene
                         // Request access only to the Wearable API
                 .addApi(Wearable.API)
                 .build();
+
+        // keep screen on (debug only)
+        getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
     }
 
     @Override
@@ -132,7 +139,8 @@ public class MainActivity extends WearableActivity implements SensorEventListene
             if (mTextView != null) {
                 mTextView.setText(text);
             }
-            //writeToFile(text);
+
+            writeToFile(text);
             clearFiles();
         }
     }
@@ -148,7 +156,7 @@ public class MainActivity extends WearableActivity implements SensorEventListene
 
         try {
 
-            outStream.write((text + "\n").getBytes());
+           // outStream.write((text + "\n").getBytes());
             Log.i(TAG, text);
         } catch (Exception e) {
             Log.e("no-print-line", e.getMessage());
@@ -163,25 +171,16 @@ public class MainActivity extends WearableActivity implements SensorEventListene
     }
 
     private void openOutFileStream() {
+        //TODO: Pass in a large string to be appended to every second for now (expand interval later on)
         Date date = new Date();
         String tempFileName = getTempFileName(date);
-        boolean isNewFile = lastFileName != null && lastFileName != tempFileName;
-        String oldFileName = null;
-
-        if (lastFileName != tempFileName) {
-            oldFileName = lastFileName;
-            lastFileName = tempFileName;
-        }
-        if (outStream != null) {
-            if (isNewFile) {
-                queueFileTransfer(oldFileName);
-            } else {
-                return;
-            }
-        }
 
         try {
             outStream = openFileOutput(tempFileName, MODE_APPEND);
+            outStream.close();
+            outStream = null;
+
+            queueFileTransfer(tempFileName);
         } catch (Exception ex) {
             Log.e("no-open-file", ex.getMessage());
         }
@@ -192,20 +191,22 @@ public class MainActivity extends WearableActivity implements SensorEventListene
 
         try {
             // read file to be gzipped
-            FileInputStream in = openFileInput(filename);
+            //File file = getFileStreamPath(filename);
+            //FileInputStream in = new FileInputStream(file);
 
             // prepare file to be gzipped
-            GZIPOutputStream gzipOut = new GZIPOutputStream(new FileOutputStream(gzipFilename));
+            GZIPOutputStream gzipOut = new GZIPOutputStream(openFileOutput(gzipFilename, MODE_PRIVATE));
+            gzipOut.write(("I'm a test at " + new Date().toString()).getBytes());
 
-            // gzip contents
-            byte[] buffer = new byte[4096];
-            int len = 0;
-            while ((len = in.read(buffer)) > 0) {
-                gzipOut.write(buffer);
-            }
+            //// gzip contents
+            byte[] buffer; // = new byte[4096];
+            //int len = 0;
+            //while ((len = in.read(buffer)) > 0) {
+            //    gzipOut.write(buffer);
+            //}
 
             // close files
-            in.close();
+            //in.close();
             gzipOut.finish();
             gzipOut.close();
 
@@ -219,10 +220,9 @@ public class MainActivity extends WearableActivity implements SensorEventListene
             // perform transfer
             Asset asset = Asset.createFromBytes(buffer);
             PutDataMapRequest dataMap = PutDataMapRequest.create("/gz");
-            dataMap.getDataMap().putAsset("qmedic.last_file", asset);
+            dataMap.getDataMap().putAsset("qmedic", asset);
             PutDataRequest request = dataMap.asPutDataRequest();
-            PendingResult<DataApi.DataItemResult> pendingResult = Wearable.DataApi
-                    .putDataItem(mGoogleApiClient, request);
+            Wearable.DataApi.putDataItem(mGoogleApiClient, request);
 
             // on device...follow the 'mobile side'
             // http://stackoverflow.com/a/28356039
@@ -238,17 +238,17 @@ public class MainActivity extends WearableActivity implements SensorEventListene
     }
 
     @Override
-    public void onEnterAmbient(Bundle ambientDetails) {
-        super.onEnterAmbient(ambientDetails);
+    public void onConnected(Bundle bundle) {
+
     }
 
     @Override
-    public void onUpdateAmbient() {
-        super.onUpdateAmbient();
+    public void onConnectionSuspended(int i) {
+
     }
 
     @Override
-    public void onExitAmbient() {
-        super.onExitAmbient();
+    public void onConnectionFailed(ConnectionResult connectionResult) {
+
     }
 }

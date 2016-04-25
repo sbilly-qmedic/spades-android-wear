@@ -6,7 +6,9 @@ import android.hardware.Sensor;
 import android.hardware.SensorEvent;
 import android.hardware.SensorEventListener;
 import android.hardware.SensorManager;
+import android.media.MediaScannerConnection;
 import android.os.Bundle;
+import android.os.Environment;
 import android.os.RemoteException;
 import android.support.wearable.view.WatchViewStub;
 import android.util.Log;
@@ -15,11 +17,28 @@ import android.widget.TextView;
 import com.estimote.sdk.Beacon;
 import com.estimote.sdk.BeaconManager;
 import com.estimote.sdk.Region;
+import com.google.android.gms.common.ConnectionResult;
+import com.google.android.gms.common.api.GoogleApiClient;
+import com.google.android.gms.common.api.GoogleApiClient.ConnectionCallbacks;
+import com.google.android.gms.common.api.GoogleApiClient.OnConnectionFailedListener;
 
+import com.google.android.gms.wearable.Asset;
+import com.google.android.gms.wearable.DataApi;
+import com.google.android.gms.wearable.DataEvent;
+import com.google.android.gms.wearable.DataEventBuffer;
+import com.google.android.gms.wearable.DataMapItem;
+import com.google.android.gms.wearable.Wearable;
+
+import java.io.File;
+import java.io.FileOutputStream;
+import java.io.InputStream;
 import java.text.DecimalFormat;
+import java.util.Date;
 import java.util.List;
+import java.util.concurrent.TimeUnit;
 
-public class MainActivity extends Activity implements SensorEventListener {
+public class MainActivity extends Activity implements
+        DataApi.DataListener, ConnectionCallbacks, OnConnectionFailedListener {
 
     private static final String TAG = "WEAR TEST";
 
@@ -27,10 +46,7 @@ public class MainActivity extends Activity implements SensorEventListener {
     private static final Region ALL_ESTIMOTE_BEACONS = new Region("regionId", ESTIMOTE_PROXIMITY_UUID, null, null);
 
     private TextView mTextView;
-    private SensorManager mSensorMgr;
-    private Sensor mAccel;
-
-    private BeaconManager mBeaconManager = null;
+    private GoogleApiClient mGoogleApiClient;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -44,81 +60,99 @@ public class MainActivity extends Activity implements SensorEventListener {
             }
         });
 
-        // Set up accelerometer sensor
-        mSensorMgr = (SensorManager) getSystemService(Context.SENSOR_SERVICE);
-        mAccel = mSensorMgr.getDefaultSensor(Sensor.TYPE_ACCELEROMETER);
-        if(mAccel != null) {
-            mSensorMgr.registerListener(this, mAccel, SensorManager.SENSOR_DELAY_NORMAL);
-        }
 
-        // Set up estimote
-        mBeaconManager = new BeaconManager(this.getApplicationContext());
-        mBeaconManager.setRangingListener(new BeaconManager.RangingListener() {
-            @Override
-            public void onBeaconsDiscovered(Region region, List<Beacon> beacons) {
-                Log.d(TAG, "Beacons: "+beacons);
-            }
-        });
+        mGoogleApiClient = new GoogleApiClient.Builder(this)
+                .addApi(Wearable.API)
+                .addConnectionCallbacks(this)
+                .addOnConnectionFailedListener(this)
+                .build();
     }
 
     @Override
     protected void onPause() {
         super.onPause();
-        if(mAccel!=null) {
-            mSensorMgr.unregisterListener(this, mAccel);
-        }
     }
 
     @Override
     protected void onStart() {
         super.onStart();
-        mBeaconManager.connect(new BeaconManager.ServiceReadyCallback() {
-            @Override
-            public void onServiceReady() {
-                try {
-                    mBeaconManager.startRanging(ALL_ESTIMOTE_BEACONS);
-                } catch (RemoteException e) {
-                    Log.e(TAG, "Cannot start ranging", e);
-                }
-            }
-        });
     }
 
     @Override
     protected void onStop() {
         super.onStop();
-        try {
-            mBeaconManager.stopRanging(ALL_ESTIMOTE_BEACONS);
-        } catch (RemoteException e) {
-            Log.e(TAG, "Cannot stop but it does not matter now", e);
+    }
+
+
+    @Override
+    public void onConnected(Bundle bundle) {
+
+    }
+
+    @Override
+    public void onConnectionSuspended(int i) {
+
+    }
+
+    @Override
+    public void onDataChanged(DataEventBuffer dataEvents) {
+        mTextView.setText("Data has changed at " + new Date().toString());
+
+        for (DataEvent event : dataEvents) {
+            if (event.getType() == DataEvent.TYPE_CHANGED)
+                    //&& event.getDataItem().getUri().getPath().equals("/gz"))
+            {
+                // Get the Asset object
+                DataMapItem dataMapItem = DataMapItem.fromDataItem(event.getDataItem());
+                Asset asset = dataMapItem.getDataMap().getAsset("qmedic");
+
+                ConnectionResult result =  mGoogleApiClient.blockingConnect(10000, TimeUnit.MILLISECONDS);
+                if (!result.isSuccess()) {return;}
+
+
+                // Convert asset into a file descriptor and block until it's ready
+                InputStream assetInputStream = Wearable.DataApi.getFdForAsset(
+                        mGoogleApiClient, asset).await().getInputStream();
+                mGoogleApiClient.disconnect();
+                if (assetInputStream == null) { return; }
+
+                // Get folder for output
+                File sdcard = Environment.getExternalStorageDirectory();
+                File dir = new File(sdcard.getAbsolutePath() + "/spades/");
+                if (!dir.exists()) { dir.mkdirs(); } // Create folder if needed
+
+                // Read data from the Asset and write it to a file on external storage
+                final File file = new File(dir, "stuff.gz");
+                try {
+                    FileOutputStream fOut = new FileOutputStream(file);
+                    int nRead;
+                    byte[] data = new byte[16384];
+                    while ((nRead = assetInputStream.read(data, 0, data.length)) != -1) {
+                        fOut.write(data, 0, nRead);
+                    }
+
+                    fOut.flush();
+                    fOut.close();
+                }
+                catch (Exception e)
+                {
+                    Log.e(TAG + "-APP", "Failed to do stuff: " + e.toString());
+                }
+
+                // Rescan folder to make it appear
+                try {
+                    String[] paths = new String[1];
+                    paths[0] = file.getAbsolutePath();
+                    MediaScannerConnection.scanFile(this, paths, null, null);
+                } catch (Exception e) {
+                    Log.e(TAG + "-APP", "Failed to do stuff: " + e.toString());
+                }
+            }
         }
     }
 
     @Override
-    protected void onDestroy() {
-        super.onDestroy();
-        mBeaconManager.disconnect();
-    }
-
-
-    @Override
-    public void onSensorChanged(SensorEvent event) {
-        if(event.sensor.getType() == Sensor.TYPE_ACCELEROMETER) {
-            String now = String.valueOf(event.timestamp);
-            DecimalFormat df = new DecimalFormat("###.##");
-            float x = event.values[0];
-            float y = event.values[1];
-            float z = event.values[2];
-            String text = df.format(x)+", "+df.format(y)+", "+df.format(z);
-            Log.i(TAG, now+": "+text);
-            mTextView.setText(text);
-        }
-    }
-
-    @Override
-    public void onAccuracyChanged(Sensor sensor, int accuracy) {
+    public void onConnectionFailed(ConnectionResult connectionResult) {
 
     }
-
-
 }

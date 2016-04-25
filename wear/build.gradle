@@ -6,7 +6,7 @@ android {
     buildToolsVersion "23.0.2"
 
     defaultConfig {
-        applicationId "com.qmedic.androidwearmodule"
+        applicationId "com.qmedic.weartest"
         minSdkVersion 21
         targetSdkVersion 23
         versionCode 1
