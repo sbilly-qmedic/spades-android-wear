@@ -16,8 +16,12 @@ import android.widget.TextView;
 import com.google.android.gms.common.ConnectionResult;
 import com.google.android.gms.common.api.GoogleApiClient;
 import com.google.android.gms.common.api.PendingResult;
+import com.google.android.gms.common.api.ResultCallback;
 import com.google.android.gms.wearable.Asset;
 import com.google.android.gms.wearable.DataApi;
+import com.google.android.gms.wearable.MessageApi;
+import com.google.android.gms.wearable.Node;
+import com.google.android.gms.wearable.NodeApi;
 import com.google.android.gms.wearable.PutDataMapRequest;
 import com.google.android.gms.wearable.PutDataRequest;
 import com.google.android.gms.wearable.Wearable;
@@ -38,6 +42,7 @@ public class MainActivity extends Activity implements SensorEventListener,Google
 
     private TextView mTextView;
     private static final String TAG = "WEAR TEST";
+    public static String SERVICE_CALLED_WEAR = "WearService";
     private SensorManager mSensorMgr;
     private Sensor mAccel;
 
@@ -48,6 +53,8 @@ public class MainActivity extends Activity implements SensorEventListener,Google
             new SimpleDateFormat("HH:mm", Locale.US);
 
     private GoogleApiClient mGoogleApiClient;
+    private boolean mResolveError = false;
+    private Node mNode = null;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -67,7 +74,6 @@ public class MainActivity extends Activity implements SensorEventListener,Google
         if(mAccel != null) {
             mSensorMgr.registerListener(this, mAccel, SensorManager.SENSOR_DELAY_NORMAL);
         }
-
 
         mGoogleApiClient = new GoogleApiClient.Builder(this)
                 .addConnectionCallbacks(new GoogleApiClient.ConnectionCallbacks() {
@@ -106,6 +112,9 @@ public class MainActivity extends Activity implements SensorEventListener,Google
     @Override
     protected void onStart() {
         super.onStart();
+        if (!mResolveError) {
+            mGoogleApiClient.connect();
+        }
     }
 
     @Override
@@ -189,6 +198,20 @@ public class MainActivity extends Activity implements SensorEventListener,Google
     private void queueFileTransfer(String filename) {
         String gzipFilename = filename + ".gz";
 
+        // Create an Asset from the byte array, and send it via the DataApi
+        String msg = "Hello at " + new Date().toString();
+        /*
+        Asset a = Asset.createFromBytes(msg.getBytes());
+        PutDataMapRequest dm = PutDataMapRequest.create("/txt");
+        dm.getDataMap().putAsset("com.example.company.key.TXT", a);
+        PutDataRequest req = dm.asPutDataRequest();
+        PendingResult<DataApi.DataItemResult> pendingResult = Wearable.DataApi
+                .putDataItem(mGoogleApiClient, req);
+                */
+        sendMessage(msg);
+        return;
+
+/*
         try {
             // read file to be gzipped
             //File file = getFileStreamPath(filename);
@@ -222,15 +245,16 @@ public class MainActivity extends Activity implements SensorEventListener,Google
             PutDataMapRequest dataMap = PutDataMapRequest.create("/gz");
             dataMap.getDataMap().putAsset("qmedic", asset);
             PutDataRequest request = dataMap.asPutDataRequest();
-            Wearable.DataApi.putDataItem(mGoogleApiClient, request);
+            PendingResult<DataApi.DataItemResult> result = Wearable.DataApi.putDataItem(mGoogleApiClient, request);
 
+            Log.v(TAG, "Trace");
             // on device...follow the 'mobile side'
             // http://stackoverflow.com/a/28356039
 
         } catch (Exception ex) {
             Log.e(TAG, "Failed to transfer file " + filename + " to android device.");
         }
-    }
+*/    }
 
     @Override
     public void onAccuracyChanged(Sensor sensor, int accuracy) {
@@ -239,7 +263,7 @@ public class MainActivity extends Activity implements SensorEventListener,Google
 
     @Override
     public void onConnected(Bundle bundle) {
-
+        resolveNode();
     }
 
     @Override
@@ -249,6 +273,49 @@ public class MainActivity extends Activity implements SensorEventListener,Google
 
     @Override
     public void onConnectionFailed(ConnectionResult connectionResult) {
+
+    }
+
+    /**
+     * Resolve the node = the connected device to send the message to
+     */
+    private void resolveNode() {
+        Wearable.NodeApi.getConnectedNodes(mGoogleApiClient)
+                .setResultCallback(new ResultCallback<NodeApi.GetConnectedNodesResult>() {
+                    @Override
+                    public void onResult(NodeApi.GetConnectedNodesResult nodes) {
+                        for (Node node : nodes.getNodes()) {
+                            mNode = node;
+                        }
+                    }
+                });
+    }
+
+    /**
+     * Send message to mobile handheld
+     */
+    private void sendMessage(String Key) {
+        if (mNode == null && mGoogleApiClient!= null && mGoogleApiClient.isConnected()) {
+            resolveNode();
+        }
+
+        if (mNode != null && mGoogleApiClient!= null && mGoogleApiClient.isConnected()) {
+            Log.d(TAG, "-- " + mGoogleApiClient.isConnected());
+            Wearable.MessageApi.sendMessage(
+                    mGoogleApiClient, mNode.getId(), SERVICE_CALLED_WEAR + "--" + Key, null).setResultCallback(
+
+                    new ResultCallback<MessageApi.SendMessageResult>() {
+                        @Override
+                        public void onResult(MessageApi.SendMessageResult sendMessageResult) {
+
+                            if (!sendMessageResult.getStatus().isSuccess()) {
+                                Log.e(TAG, "Failed to send message with status code: "
+                                        + sendMessageResult.getStatus().getStatusCode());
+                            }
+                        }
+                    }
+            );
+        }
 
     }
 }

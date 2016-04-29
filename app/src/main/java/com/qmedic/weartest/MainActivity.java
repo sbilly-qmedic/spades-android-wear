@@ -27,7 +27,9 @@ import com.google.android.gms.wearable.DataApi;
 import com.google.android.gms.wearable.DataEvent;
 import com.google.android.gms.wearable.DataEventBuffer;
 import com.google.android.gms.wearable.DataMapItem;
+import com.google.android.gms.wearable.MessageEvent;
 import com.google.android.gms.wearable.Wearable;
+import com.google.android.gms.wearable.WearableListenerService;
 
 import java.io.File;
 import java.io.FileOutputStream;
@@ -99,6 +101,29 @@ public class MainActivity extends Activity implements
         mTextView.setText("Data has changed at " + new Date().toString());
 
         for (DataEvent event : dataEvents) {
+            if (event.getType() == DataEvent.TYPE_CHANGED &&
+                    event.getDataItem().getUri().getPath().equals("/txt")) {
+                // Get the Asset object
+                DataMapItem dataMapItem = DataMapItem.fromDataItem(event.getDataItem());
+                Asset asset = dataMapItem.getDataMap().getAsset("com.example.company.key.TXT");
+
+                ConnectionResult result =
+                        mGoogleApiClient.blockingConnect(10000, TimeUnit.MILLISECONDS);
+                if (!result.isSuccess()) {
+                    return;
+                }
+
+                // Convert asset into a file descriptor and block until it's ready
+                InputStream assetInputStream = Wearable.DataApi.getFdForAsset(
+                        mGoogleApiClient, asset).await().getInputStream();
+
+                if (assetInputStream == null) {
+                    return;
+                }
+            }
+        }
+        /*
+        for (DataEvent event : dataEvents) {
             if (event.getType() == DataEvent.TYPE_CHANGED)
                     //&& event.getDataItem().getUri().getPath().equals("/gz"))
             {
@@ -149,10 +174,23 @@ public class MainActivity extends Activity implements
                 }
             }
         }
+        */
     }
 
     @Override
     public void onConnectionFailed(ConnectionResult connectionResult) {
 
     }
+
+    public class WearListCallListenerService2 extends WearableListenerService {
+
+        @Override
+        public void onMessageReceived(MessageEvent messageEvent) {
+            super.onMessageReceived(messageEvent);
+
+            String event = messageEvent.getPath();
+            mTextView.setText(event);
+        }
+    }
+
 }
