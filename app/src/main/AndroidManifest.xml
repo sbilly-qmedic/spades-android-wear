@@ -19,7 +19,7 @@
             </intent-filter>
         </activity>
 
-        <service android:name=".MainActivity$WearListCallListenerService2">
+        <service android:name=".WearListCallListenerService">
             <intent-filter>
                 <action android:name="com.google.android.gms.wearable.BIND_LISTENER" />
             </intent-filter>

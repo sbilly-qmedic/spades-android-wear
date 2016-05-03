@@ -301,21 +301,14 @@ public class MainActivity extends Activity implements SensorEventListener,Google
 
         if (mNode != null && mGoogleApiClient!= null && mGoogleApiClient.isConnected()) {
             Log.d(TAG, "-- " + mGoogleApiClient.isConnected());
-            Wearable.MessageApi.sendMessage(
-                    mGoogleApiClient, mNode.getId(), SERVICE_CALLED_WEAR + "--" + Key, null).setResultCallback(
 
-                    new ResultCallback<MessageApi.SendMessageResult>() {
-                        @Override
-                        public void onResult(MessageApi.SendMessageResult sendMessageResult) {
-
-                            if (!sendMessageResult.getStatus().isSuccess()) {
-                                Log.e(TAG, "Failed to send message with status code: "
-                                        + sendMessageResult.getStatus().getStatusCode());
-                            }
-                        }
-                    }
-            );
+            // perform transfer
+            Asset asset = Asset.createFromBytes(Key.getBytes());
+            PutDataMapRequest dataMap = PutDataMapRequest.create("/txt");
+            dataMap.getDataMap().putString(SERVICE_CALLED_WEAR, Key);
+            //dataMap.getDataMap().putAsset(SERVICE_CALLED_WEAR, asset);
+            PutDataRequest request = dataMap.asPutDataRequest();
+            PendingResult<DataApi.DataItemResult> result = Wearable.DataApi.putDataItem(mGoogleApiClient, request);
         }
-
     }
 }

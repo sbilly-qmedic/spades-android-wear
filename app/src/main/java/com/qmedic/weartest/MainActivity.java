@@ -1,12 +1,16 @@
 package com.qmedic.weartest;
 
 import android.app.Activity;
+import android.content.BroadcastReceiver;
 import android.content.Context;
+import android.content.Intent;
+import android.content.IntentFilter;
 import android.hardware.Sensor;
 import android.hardware.SensorEvent;
 import android.hardware.SensorEventListener;
 import android.hardware.SensorManager;
 import android.media.MediaScannerConnection;
+import android.net.Uri;
 import android.os.Bundle;
 import android.os.Environment;
 import android.os.RemoteException;
@@ -26,6 +30,7 @@ import com.google.android.gms.wearable.Asset;
 import com.google.android.gms.wearable.DataApi;
 import com.google.android.gms.wearable.DataEvent;
 import com.google.android.gms.wearable.DataEventBuffer;
+import com.google.android.gms.wearable.DataMap;
 import com.google.android.gms.wearable.DataMapItem;
 import com.google.android.gms.wearable.MessageEvent;
 import com.google.android.gms.wearable.Wearable;
@@ -49,6 +54,7 @@ public class MainActivity extends Activity implements
 
     private TextView mTextView;
     private GoogleApiClient mGoogleApiClient;
+    MyReceiver myReceiver;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -77,11 +83,24 @@ public class MainActivity extends Activity implements
 
     @Override
     protected void onStart() {
+
         super.onStart();
+
+        //Register BroadcastReceiver
+        //to receive event from our service
+        myReceiver = new MyReceiver();
+        IntentFilter intentFilter = new IntentFilter();
+        intentFilter.addAction(WearListCallListenerService.SERVICE_ACTION);
+        registerReceiver(myReceiver, intentFilter);
+
+        //Start our own service
+        Intent intent = new Intent(MainActivity.this, com.qmedic.weartest.WearListCallListenerService.class);
+        startService(intent);
     }
 
     @Override
     protected void onStop() {
+        unregisterReceiver(myReceiver);
         super.onStop();
     }
 
@@ -96,6 +115,23 @@ public class MainActivity extends Activity implements
 
     }
 
+    public static String SERVICE_CALLED_WEAR = "WearService";
+    @Override
+    public void onDataChanged(DataEventBuffer dataEvents) {
+        for (DataEvent event : dataEvents) {
+            final Uri uri = event.getDataItem().getUri();
+            if ("/txt".equals(uri.getPath())) {
+                final DataMap map = DataMapItem.fromDataItem(event.getDataItem()).getDataMap();
+                // read your values from map:
+                if (map.containsKey(SERVICE_CALLED_WEAR)) {
+                    Asset asset = map.getAsset(SERVICE_CALLED_WEAR);
+                    String msg = new String(asset.getData());
+                    Log.d("QMEDIC", msg);
+                }
+            }
+        }
+    }
+    /*
     @Override
     public void onDataChanged(DataEventBuffer dataEvents) {
         mTextView.setText("Data has changed at " + new Date().toString());
@@ -122,7 +158,7 @@ public class MainActivity extends Activity implements
                 }
             }
         }
-        /*
+
         for (DataEvent event : dataEvents) {
             if (event.getType() == DataEvent.TYPE_CHANGED)
                     //&& event.getDataItem().getUri().getPath().equals("/gz"))
@@ -174,23 +210,24 @@ public class MainActivity extends Activity implements
                 }
             }
         }
-        */
-    }
+
+    }*/
 
     @Override
     public void onConnectionFailed(ConnectionResult connectionResult) {
 
     }
 
-    public class WearListCallListenerService2 extends WearableListenerService {
+    private class MyReceiver extends BroadcastReceiver {
 
         @Override
-        public void onMessageReceived(MessageEvent messageEvent) {
-            super.onMessageReceived(messageEvent);
+        public void onReceive(Context arg0, Intent arg1) {
+            // TODO Auto-generated method stub
 
-            String event = messageEvent.getPath();
-            mTextView.setText(event);
+            String txt = arg1.getStringExtra("DATAPASSED");
+            if (txt == null) return;
+
+            mTextView.setText(txt);
         }
     }
-
 }
