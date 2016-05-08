@@ -7,7 +7,6 @@ import android.hardware.SensorEvent;
 import android.hardware.SensorEventListener;
 import android.hardware.SensorManager;
 import android.os.Bundle;
-import android.support.wearable.activity.WearableActivity;
 import android.support.wearable.view.WatchViewStub;
 import android.util.Log;
 import android.view.WindowManager;
@@ -19,30 +18,23 @@ import com.google.android.gms.common.api.PendingResult;
 import com.google.android.gms.common.api.ResultCallback;
 import com.google.android.gms.wearable.Asset;
 import com.google.android.gms.wearable.DataApi;
-import com.google.android.gms.wearable.MessageApi;
 import com.google.android.gms.wearable.Node;
 import com.google.android.gms.wearable.NodeApi;
 import com.google.android.gms.wearable.PutDataMapRequest;
 import com.google.android.gms.wearable.PutDataRequest;
 import com.google.android.gms.wearable.Wearable;
 
-import java.io.File;
-import java.io.FileInputStream;
 import java.io.FileOutputStream;
-import java.io.InputStream;
-import java.io.InputStreamReader;
 import java.text.DecimalFormat;
 import java.text.SimpleDateFormat;
 import java.util.Date;
 import java.util.Locale;
-import java.util.zip.GZIPInputStream;
-import java.util.zip.GZIPOutputStream;
 
 public class MainActivity extends Activity implements SensorEventListener,GoogleApiClient.ConnectionCallbacks, GoogleApiClient.OnConnectionFailedListener {
 
     private TextView mTextView;
-    private static final String TAG = "WEAR TEST";
-    public static String SERVICE_CALLED_WEAR = "WearService";
+    private static final String TAG = "QMEDIC_WEAR";
+    public static String SERVICE_CALLED_WEAR = "QMEDIC_DATA_MESSAGE";
     private SensorManager mSensorMgr;
     private Sensor mAccel;
 
@@ -54,7 +46,6 @@ public class MainActivity extends Activity implements SensorEventListener,Google
 
     private GoogleApiClient mGoogleApiClient;
     private boolean mResolveError = false;
-    private Node mNode = null;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -98,7 +89,7 @@ public class MainActivity extends Activity implements SensorEventListener,Google
                 .build();
 
         // keep screen on (debug only)
-        getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
+        // getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
     }
 
     @Override
@@ -130,27 +121,33 @@ public class MainActivity extends Activity implements SensorEventListener,Google
 
     @Override
     public void onSensorChanged(SensorEvent event) {
-        if(event.sensor.getType() == Sensor.TYPE_ACCELEROMETER) {
-            Date date = new Date(event.timestamp);
-            float x = event.values[0];
-            float y = event.values[1];
-            float z = event.values[2];
+        switch (event.sensor.getType()) {
+            case Sensor.TYPE_ACCELEROMETER:
+                Date date = new Date(event.timestamp);
+                float x = event.values[0];
+                float y = event.values[1];
+                float z = event.values[2];
 
-            DecimalFormat df = new DecimalFormat("###.##");
-            SimpleDateFormat sdf = new SimpleDateFormat("yyyy-MM-dd_HH");
-            String text = String.format(
-                "%s, %s, %s, %s",
-                sdf.format(date),
-                df.format(x),
-                df.format(y),
-                df.format(z));
+                DecimalFormat df = new DecimalFormat("###.##");
+                SimpleDateFormat sdf = new SimpleDateFormat("yyyy-MM-dd_HH");
+                String text = String.format(
+                        "%s, %s, %s, %s",
+                        sdf.format(date),
+                        df.format(x),
+                        df.format(y),
+                        df.format(z));
 
-            if (mTextView != null) {
-                mTextView.setText(text);
-            }
+                if (mTextView != null) {
+                    mTextView.setText(text);
+                }
 
-            writeToFile(text);
-            clearFiles();
+                broadcastMessage(text.getBytes(), "txt");
+
+            case Sensor.TYPE_HEART_RATE:
+                // TODO: do some heart rate stuff
+
+            default:
+                // ignore
         }
     }
 
@@ -159,103 +156,6 @@ public class MainActivity extends Activity implements SensorEventListener,Google
         return "temp-" + sdf.format(date) + ".csv";
     }
 
-    private void writeToFile(String text) {
-        openOutFileStream();
-        if (outStream == null) return;
-
-        try {
-
-           // outStream.write((text + "\n").getBytes());
-            Log.i(TAG, text);
-        } catch (Exception e) {
-            Log.e("no-print-line", e.getMessage());
-        }
-    }
-
-    private void clearFiles() {
-        String[] files = fileList();
-        for (String file : files) {
-            deleteFile(file);
-        }
-    }
-
-    private void openOutFileStream() {
-        //TODO: Pass in a large string to be appended to every second for now (expand interval later on)
-        Date date = new Date();
-        String tempFileName = getTempFileName(date);
-
-        try {
-            outStream = openFileOutput(tempFileName, MODE_APPEND);
-            outStream.close();
-            outStream = null;
-
-            queueFileTransfer(tempFileName);
-        } catch (Exception ex) {
-            Log.e("no-open-file", ex.getMessage());
-        }
-    }
-
-    private void queueFileTransfer(String filename) {
-        String gzipFilename = filename + ".gz";
-
-        // Create an Asset from the byte array, and send it via the DataApi
-        String msg = "Hello at " + new Date().toString();
-        /*
-        Asset a = Asset.createFromBytes(msg.getBytes());
-        PutDataMapRequest dm = PutDataMapRequest.create("/txt");
-        dm.getDataMap().putAsset("com.example.company.key.TXT", a);
-        PutDataRequest req = dm.asPutDataRequest();
-        PendingResult<DataApi.DataItemResult> pendingResult = Wearable.DataApi
-                .putDataItem(mGoogleApiClient, req);
-                */
-        sendMessage(msg);
-        return;
-
-/*
-        try {
-            // read file to be gzipped
-            //File file = getFileStreamPath(filename);
-            //FileInputStream in = new FileInputStream(file);
-
-            // prepare file to be gzipped
-            GZIPOutputStream gzipOut = new GZIPOutputStream(openFileOutput(gzipFilename, MODE_PRIVATE));
-            gzipOut.write(("I'm a test at " + new Date().toString()).getBytes());
-
-            //// gzip contents
-            byte[] buffer; // = new byte[4096];
-            //int len = 0;
-            //while ((len = in.read(buffer)) > 0) {
-            //    gzipOut.write(buffer);
-            //}
-
-            // close files
-            //in.close();
-            gzipOut.finish();
-            gzipOut.close();
-
-            // get gzipped contents to transfer
-            FileInputStream inFile = openFileInput(gzipFilename);
-            int fileSize = (int)inFile.getChannel().size();
-            buffer = new byte[fileSize];
-            inFile.read(buffer);
-            inFile.close();
-
-            // perform transfer
-            Asset asset = Asset.createFromBytes(buffer);
-            PutDataMapRequest dataMap = PutDataMapRequest.create("/gz");
-            dataMap.getDataMap().putAsset("qmedic", asset);
-            PutDataRequest request = dataMap.asPutDataRequest();
-            PendingResult<DataApi.DataItemResult> result = Wearable.DataApi.putDataItem(mGoogleApiClient, request);
-
-            Log.v(TAG, "Trace");
-            // on device...follow the 'mobile side'
-            // http://stackoverflow.com/a/28356039
-
-        } catch (Exception ex) {
-            Log.e(TAG, "Failed to transfer file " + filename + " to android device.");
-        }
-*/    }
-
     @Override
     public void onAccuracyChanged(Sensor sensor, int accuracy) {
 
@@ -263,52 +163,32 @@ public class MainActivity extends Activity implements SensorEventListener,Google
 
     @Override
     public void onConnected(Bundle bundle) {
-        resolveNode();
+        //TODO: maybe some management stats here?
     }
 
     @Override
     public void onConnectionSuspended(int i) {
-
+        //TODO: maybe some management stats here?
     }
 
     @Override
     public void onConnectionFailed(ConnectionResult connectionResult) {
-
+        //TODO: maybe some management stats here?
     }
 
     /**
-     * Resolve the node = the connected device to send the message to
+     * Broadcasts the message (in bytes) to those connect to the local google client
+     * @param messageInBytes - The message to be broadcasted in bytes
      */
-    private void resolveNode() {
-        Wearable.NodeApi.getConnectedNodes(mGoogleApiClient)
-                .setResultCallback(new ResultCallback<NodeApi.GetConnectedNodesResult>() {
-                    @Override
-                    public void onResult(NodeApi.GetConnectedNodesResult nodes) {
-                        for (Node node : nodes.getNodes()) {
-                            mNode = node;
-                        }
-                    }
-                });
-    }
-
-    /**
-     * Send message to mobile handheld
-     */
-    private void sendMessage(String Key) {
-        if (mNode == null && mGoogleApiClient!= null && mGoogleApiClient.isConnected()) {
-            resolveNode();
+    private void broadcastMessage(byte[] messageInBytes, String extension) {
+        Asset asset = Asset.createFromBytes(messageInBytes);
+        if (!extension.startsWith("/")) {
+            extension = "/" + extension;
         }
 
-        if (mNode != null && mGoogleApiClient!= null && mGoogleApiClient.isConnected()) {
-            Log.d(TAG, "-- " + mGoogleApiClient.isConnected());
-
-            // perform transfer
-            Asset asset = Asset.createFromBytes(Key.getBytes());
-            PutDataMapRequest dataMap = PutDataMapRequest.create("/txt");
-            dataMap.getDataMap().putString(SERVICE_CALLED_WEAR, Key);
-            //dataMap.getDataMap().putAsset(SERVICE_CALLED_WEAR, asset);
-            PutDataRequest request = dataMap.asPutDataRequest();
-            PendingResult<DataApi.DataItemResult> result = Wearable.DataApi.putDataItem(mGoogleApiClient, request);
-        }
+        PutDataMapRequest dataMap = PutDataMapRequest.create(extension);
+        dataMap.getDataMap().putAsset(SERVICE_CALLED_WEAR, asset);
+        PutDataRequest request = dataMap.asPutDataRequest();
+        PendingResult<DataApi.DataItemResult> result = Wearable.DataApi.putDataItem(mGoogleApiClient, request);
     }
 }

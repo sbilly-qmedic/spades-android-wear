@@ -5,44 +5,24 @@ import android.content.BroadcastReceiver;
 import android.content.Context;
 import android.content.Intent;
 import android.content.IntentFilter;
-import android.hardware.Sensor;
-import android.hardware.SensorEvent;
-import android.hardware.SensorEventListener;
-import android.hardware.SensorManager;
-import android.media.MediaScannerConnection;
 import android.net.Uri;
 import android.os.Bundle;
-import android.os.Environment;
-import android.os.RemoteException;
 import android.support.wearable.view.WatchViewStub;
 import android.util.Log;
 import android.widget.TextView;
 
-import com.estimote.sdk.Beacon;
-import com.estimote.sdk.BeaconManager;
 import com.estimote.sdk.Region;
 import com.google.android.gms.common.ConnectionResult;
 import com.google.android.gms.common.api.GoogleApiClient;
 import com.google.android.gms.common.api.GoogleApiClient.ConnectionCallbacks;
 import com.google.android.gms.common.api.GoogleApiClient.OnConnectionFailedListener;
-
 import com.google.android.gms.wearable.Asset;
 import com.google.android.gms.wearable.DataApi;
 import com.google.android.gms.wearable.DataEvent;
 import com.google.android.gms.wearable.DataEventBuffer;
 import com.google.android.gms.wearable.DataMap;
 import com.google.android.gms.wearable.DataMapItem;
-import com.google.android.gms.wearable.MessageEvent;
 import com.google.android.gms.wearable.Wearable;
-import com.google.android.gms.wearable.WearableListenerService;
-
-import java.io.File;
-import java.io.FileOutputStream;
-import java.io.InputStream;
-import java.text.DecimalFormat;
-import java.util.Date;
-import java.util.List;
-import java.util.concurrent.TimeUnit;
 
 public class MainActivity extends Activity implements
         DataApi.DataListener, ConnectionCallbacks, OnConnectionFailedListener {
@@ -67,7 +47,6 @@ public class MainActivity extends Activity implements
                 mTextView = (TextView) stub.findViewById(R.id.text);
             }
         });
-
 
         mGoogleApiClient = new GoogleApiClient.Builder(this)
                 .addApi(Wearable.API)

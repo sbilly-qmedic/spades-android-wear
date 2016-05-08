@@ -18,8 +18,8 @@ import com.google.android.gms.wearable.MessageEvent;
 import com.google.android.gms.wearable.WearableListenerService;
 
 public class WearListCallListenerService extends WearableListenerService {
-    public static String SERVICE_CALLED_WEAR = "WearService";
-    public static String SERVICE_ACTION = "PassData";
+    public static String SERVICE_CALLED_WEAR = "QMEDIC_DATA_MESSAGE";
+    public static String SERVICE_ACTION = "QMEDIC_DATA_ENTRY";
 
     @Override
     public void onMessageReceived(MessageEvent messageEvent) {
@@ -42,16 +42,11 @@ public class WearListCallListenerService extends WearableListenerService {
             final Uri uri = event.getDataItem().getUri();
             if ("/txt".equals(uri.getPath())) {
                 final DataMap map = DataMapItem.fromDataItem(event.getDataItem()).getDataMap();
-                // read your values from map:
+                // collect data from watch, and pass to main activity
+                // TODO: Maybe just do work here in the service?
                 if (map.containsKey(SERVICE_CALLED_WEAR)) {
                     String msg = map.getString(SERVICE_CALLED_WEAR);
                     if (msg == null) continue;
-
-                    //Asset asset = map.getAsset(SERVICE_CALLED_WEAR);
-                    //byte[] assetData = asset.getData();
-                    //if (assetData == null) continue;
-
-                    //String msg = new String(assetData);
 
                     Intent intent = new Intent();
                     intent.setAction(SERVICE_ACTION);
