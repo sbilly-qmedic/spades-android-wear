@@ -30,19 +30,11 @@ import java.text.SimpleDateFormat;
 import java.util.Date;
 import java.util.Locale;
 
-public class MainActivity extends Activity implements SensorEventListener,GoogleApiClient.ConnectionCallbacks, GoogleApiClient.OnConnectionFailedListener {
+public class MainActivity extends Activity implements SensorEventListener, GoogleApiClient.ConnectionCallbacks, GoogleApiClient.OnConnectionFailedListener {
 
     private TextView mTextView;
     private static final String TAG = "QMEDIC_WEAR";
     public static String SERVICE_CALLED_WEAR = "QMEDIC_DATA_MESSAGE";
-    private SensorManager mSensorMgr;
-    private Sensor mAccel;
-
-    private FileOutputStream outStream = null;
-    private String lastFileName = null;
-
-    private static final SimpleDateFormat AMBIENT_DATE_FORMAT =
-            new SimpleDateFormat("HH:mm", Locale.US);
 
     private GoogleApiClient mGoogleApiClient;
     private boolean mResolveError = false;
@@ -55,38 +47,31 @@ public class MainActivity extends Activity implements SensorEventListener,Google
         stub.setOnLayoutInflatedListener(new WatchViewStub.OnLayoutInflatedListener() {
             @Override
             public void onLayoutInflated(WatchViewStub stub) {
-                mTextView = (TextView) stub.findViewById(R.id.text);
+            mTextView = (TextView) stub.findViewById(R.id.text);
             }
         });
 
-        // Set up accelerometer sensor
-        mSensorMgr = (SensorManager) getSystemService(Context.SENSOR_SERVICE);
-        mAccel = mSensorMgr.getDefaultSensor(Sensor.TYPE_ACCELEROMETER);
-        if(mAccel != null) {
-            mSensorMgr.registerListener(this, mAccel, SensorManager.SENSOR_DELAY_NORMAL);
-        }
-
         mGoogleApiClient = new GoogleApiClient.Builder(this)
-                .addConnectionCallbacks(new GoogleApiClient.ConnectionCallbacks() {
-                    @Override
-                    public void onConnected(Bundle connectionHint) {
-                        Log.d(TAG, "onConnected: " + connectionHint);
-                        // Now you can use the Data Layer API
-                    }
-                    @Override
-                    public void onConnectionSuspended(int cause) {
-                        Log.d(TAG, "onConnectionSuspended: " + cause);
-                    }
-                })
-                .addOnConnectionFailedListener(new GoogleApiClient.OnConnectionFailedListener() {
-                    @Override
-                    public void onConnectionFailed(ConnectionResult result) {
-                        Log.d(TAG, "onConnectionFailed: " + result);
-                    }
-                })
-                        // Request access only to the Wearable API
-                .addApi(Wearable.API)
-                .build();
+            .addConnectionCallbacks(new GoogleApiClient.ConnectionCallbacks() {
+                @Override
+                public void onConnected(Bundle connectionHint) {
+                    Log.d(TAG, "onConnected: " + connectionHint);
+                    // Now you can use the Data Layer API
+                }
+
+                @Override
+                public void onConnectionSuspended(int cause) {
+                    Log.d(TAG, "onConnectionSuspended: " + cause);
+                }
+            })
+            .addOnConnectionFailedListener(new GoogleApiClient.OnConnectionFailedListener() {
+                @Override
+                public void onConnectionFailed(ConnectionResult result) {
+                Log.d(TAG, "onConnectionFailed: " + result);
+                }
+            })
+            .addApi(Wearable.API)
+            .build();
 
         // keep screen on (debug only)
         // getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
@@ -95,9 +80,6 @@ public class MainActivity extends Activity implements SensorEventListener,Google
     @Override
     protected void onPause() {
         super.onPause();
-        if(mAccel!=null) {
-            mSensorMgr.unregisterListener(this, mAccel);
-        }
     }
 
     @Override
@@ -118,7 +100,6 @@ public class MainActivity extends Activity implements SensorEventListener,Google
         super.onDestroy();
     }
 
-
     @Override
     public void onSensorChanged(SensorEvent event) {
         switch (event.sensor.getType()) {
@@ -131,11 +112,11 @@ public class MainActivity extends Activity implements SensorEventListener,Google
                 DecimalFormat df = new DecimalFormat("###.##");
                 SimpleDateFormat sdf = new SimpleDateFormat("yyyy-MM-dd_HH");
                 String text = String.format(
-                        "%s, %s, %s, %s",
-                        sdf.format(date),
-                        df.format(x),
-                        df.format(y),
-                        df.format(z));
+                    "%s, %s, %s, %s",
+                    sdf.format(date),
+                    df.format(x),
+                    df.format(y),
+                    df.format(z));
 
                 if (mTextView != null) {
                     mTextView.setText(text);
@@ -149,11 +130,6 @@ public class MainActivity extends Activity implements SensorEventListener,Google
             default:
                 // ignore
         }
-    }
-
-    private String getTempFileName(final Date date) {
-        SimpleDateFormat sdf = new SimpleDateFormat("yyyy-MM-dd_HH_mm_ss");
-        return "temp-" + sdf.format(date) + ".csv";
     }
 
     @Override
@@ -178,6 +154,7 @@ public class MainActivity extends Activity implements SensorEventListener,Google
 
     /**
      * Broadcasts the message (in bytes) to those connect to the local google client
+     *
      * @param messageInBytes - The message to be broadcasted in bytes
      */
     private void broadcastMessage(byte[] messageInBytes, String extension) {
@@ -189,6 +166,6 @@ public class MainActivity extends Activity implements SensorEventListener,Google
         PutDataMapRequest dataMap = PutDataMapRequest.create(extension);
         dataMap.getDataMap().putAsset(SERVICE_CALLED_WEAR, asset);
         PutDataRequest request = dataMap.asPutDataRequest();
-        PendingResult<DataApi.DataItemResult> result = Wearable.DataApi.putDataItem(mGoogleApiClient, request);
+        Wearable.DataApi.putDataItem(mGoogleApiClient, request);
     }
 }

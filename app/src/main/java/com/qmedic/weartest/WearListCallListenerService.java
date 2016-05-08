@@ -6,10 +6,9 @@ package com.qmedic.weartest;
 
 import android.content.Intent;
 import android.net.Uri;
-import android.os.IBinder;
+
 import android.util.Log;
 
-import com.google.android.gms.wearable.Asset;
 import com.google.android.gms.wearable.DataEvent;
 import com.google.android.gms.wearable.DataEventBuffer;
 import com.google.android.gms.wearable.DataMap;
