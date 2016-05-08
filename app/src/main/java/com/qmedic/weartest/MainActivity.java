@@ -4,11 +4,15 @@ import android.app.Activity;
 import android.content.Intent;
 import android.net.Uri;
 import android.os.Bundle;
+import android.os.RemoteException;
 import android.support.wearable.view.WatchViewStub;
 import android.util.Log;
 import android.widget.TextView;
 
+import com.estimote.sdk.Beacon;
+import com.estimote.sdk.BeaconManager;
 import com.estimote.sdk.Region;
+
 import com.google.android.gms.common.ConnectionResult;
 import com.google.android.gms.common.api.GoogleApiClient;
 import com.google.android.gms.common.api.GoogleApiClient.ConnectionCallbacks;
@@ -31,6 +35,7 @@ public class MainActivity extends Activity implements
 
     private TextView mTextView;
     private GoogleApiClient mGoogleApiClient;
+    private BeaconManager mBeaconManager = null;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -40,7 +45,16 @@ public class MainActivity extends Activity implements
         stub.setOnLayoutInflatedListener(new WatchViewStub.OnLayoutInflatedListener() {
             @Override
             public void onLayoutInflated(WatchViewStub stub) {
-            mTextView = (TextView) stub.findViewById(R.id.text);
+                mTextView = (TextView) stub.findViewById(R.id.text);
+            }
+        });
+
+        // Set up estimote
+        mBeaconManager = new BeaconManager(this.getApplicationContext());
+        mBeaconManager.setRangingListener(new BeaconManager.RangingListener() {
+            @Override
+            public void onBeaconsDiscovered(android.graphics.Region region, List<Beacon> beacons) {
+            Log.d(TAG, "Beacons: " + beacons);
             }
         });
 
@@ -61,7 +75,18 @@ public class MainActivity extends Activity implements
 
         super.onStart();
 
-        //Start our own service
+        mBeaconManager.connect(new BeaconManager.ServiceReadyCallback() {
+            @Override
+            public void onServiceReady() {
+                try {
+                    mBeaconManager.startRanging(ALL_ESTIMOTE_BEACONS);
+                } catch (RemoteException e) {
+                    Log.e(TAG, "Cannot start ranging", e);
+                }
+            }
+        });
+
+        //Start our own service for monitoring data transfer between device and android wear
         Intent intent = new Intent(MainActivity.this, com.qmedic.weartest.WearListCallListenerService.class);
         startService(intent);
     }
@@ -69,8 +94,19 @@ public class MainActivity extends Activity implements
     @Override
     protected void onStop() {
         super.onStop();
+
+        try {
+            mBeaconManager.stopRanging(ALL_ESTIMOTE_BEACONS);
+        } catch (RemoteException e) {
+            Log.e(TAG, "Cannot stop but it does not matter now", e);
+        }
     }
 
+    @Override
+    protected void onDestroy() {
+        super.onDestroy();
+        mBeaconManager.disconnect();
+    }
 
     @Override
     public void onConnected(Bundle bundle) {

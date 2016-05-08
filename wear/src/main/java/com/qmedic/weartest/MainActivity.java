@@ -1,9 +1,12 @@
 package com.qmedic.weartest;
 
 import android.app.Activity;
+import android.content.Context;
+import android.graphics.Region;
 import android.hardware.Sensor;
 import android.hardware.SensorEvent;
 import android.hardware.SensorEventListener;
+import android.hardware.SensorManager;
 import android.os.Bundle;
 import android.support.wearable.view.WatchViewStub;
 import android.util.Log;
@@ -21,13 +24,16 @@ import java.text.DecimalFormat;
 import java.text.SimpleDateFormat;
 import java.util.Date;
 
-public class MainActivity extends Activity implements SensorEventListener, GoogleApiClient.ConnectionCallbacks, GoogleApiClient.OnConnectionFailedListener {
+public class MainActivity extends Activity implements SensorEventListener,
+        GoogleApiClient.ConnectionCallbacks, GoogleApiClient.OnConnectionFailedListener {
 
     private TextView mTextView;
     private static final String TAG = "QMEDIC_WEAR";
     private static final String SERVICE_CALLED_WEAR = "QMEDIC_DATA_MESSAGE";
 
     private GoogleApiClient mGoogleApiClient;
+    private SensorManager mSensorMgr;
+    private Sensor mAccel;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -40,6 +46,12 @@ public class MainActivity extends Activity implements SensorEventListener, Googl
             mTextView = (TextView) stub.findViewById(R.id.text);
             }
         });
+
+        mSensorMgr = (SensorManager) getSystemService(Context.SENSOR_SERVICE);
+        mAccel = mSensorMgr.getDefaultSensor(Sensor.TYPE_ACCELEROMETER);
+        if(mAccel != null) {
+            mSensorMgr.registerListener(this, mAccel, SensorManager.SENSOR_DELAY_NORMAL);
+        }
 
         mGoogleApiClient = new GoogleApiClient.Builder(this)
             .addConnectionCallbacks(new GoogleApiClient.ConnectionCallbacks() {
@@ -70,6 +82,10 @@ public class MainActivity extends Activity implements SensorEventListener, Googl
     @Override
     protected void onPause() {
         super.onPause();
+
+        if(mAccel != null) {
+            mSensorMgr.unregisterListener(this, mAccel);
+        }
     }
 
     @Override
