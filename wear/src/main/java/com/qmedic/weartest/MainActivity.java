@@ -1,43 +1,33 @@
 package com.qmedic.weartest;
 
 import android.app.Activity;
-import android.content.Context;
 import android.hardware.Sensor;
 import android.hardware.SensorEvent;
 import android.hardware.SensorEventListener;
-import android.hardware.SensorManager;
 import android.os.Bundle;
 import android.support.wearable.view.WatchViewStub;
 import android.util.Log;
-import android.view.WindowManager;
 import android.widget.TextView;
 
 import com.google.android.gms.common.ConnectionResult;
 import com.google.android.gms.common.api.GoogleApiClient;
-import com.google.android.gms.common.api.PendingResult;
-import com.google.android.gms.common.api.ResultCallback;
+
 import com.google.android.gms.wearable.Asset;
-import com.google.android.gms.wearable.DataApi;
-import com.google.android.gms.wearable.Node;
-import com.google.android.gms.wearable.NodeApi;
 import com.google.android.gms.wearable.PutDataMapRequest;
 import com.google.android.gms.wearable.PutDataRequest;
 import com.google.android.gms.wearable.Wearable;
 
-import java.io.FileOutputStream;
 import java.text.DecimalFormat;
 import java.text.SimpleDateFormat;
 import java.util.Date;
-import java.util.Locale;
 
 public class MainActivity extends Activity implements SensorEventListener, GoogleApiClient.ConnectionCallbacks, GoogleApiClient.OnConnectionFailedListener {
 
     private TextView mTextView;
     private static final String TAG = "QMEDIC_WEAR";
-    public static String SERVICE_CALLED_WEAR = "QMEDIC_DATA_MESSAGE";
+    private static final String SERVICE_CALLED_WEAR = "QMEDIC_DATA_MESSAGE";
 
     private GoogleApiClient mGoogleApiClient;
-    private boolean mResolveError = false;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -85,7 +75,9 @@ public class MainActivity extends Activity implements SensorEventListener, Googl
     @Override
     protected void onStart() {
         super.onStart();
-        if (!mResolveError) {
+
+        if (mGoogleApiClient == null) return;
+        if (!mGoogleApiClient.isConnected()) {
             mGoogleApiClient.connect();
         }
     }
@@ -98,6 +90,11 @@ public class MainActivity extends Activity implements SensorEventListener, Googl
     @Override
     protected void onDestroy() {
         super.onDestroy();
+
+        if (mGoogleApiClient == null) return;
+        if (mGoogleApiClient.isConnected()) {
+            mGoogleApiClient.disconnect();
+        }
     }
 
     @Override

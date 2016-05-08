@@ -1,10 +1,7 @@
 package com.qmedic.weartest;
 
 import android.app.Activity;
-import android.content.BroadcastReceiver;
-import android.content.Context;
 import android.content.Intent;
-import android.content.IntentFilter;
 import android.net.Uri;
 import android.os.Bundle;
 import android.support.wearable.view.WatchViewStub;
@@ -27,14 +24,13 @@ import com.google.android.gms.wearable.Wearable;
 public class MainActivity extends Activity implements
         DataApi.DataListener, ConnectionCallbacks, OnConnectionFailedListener {
 
-    private static final String TAG = "WEAR TEST";
-
+    private static final String SERVICE_CALLED_WEAR = "WearService";
+    private static final String TAG = "QMEDIC_APP";
     private static final String ESTIMOTE_PROXIMITY_UUID = "B9407F30-F5F8-466E-AFF9-25556B57FE6D";
     private static final Region ALL_ESTIMOTE_BEACONS = new Region("regionId", ESTIMOTE_PROXIMITY_UUID, null, null);
 
     private TextView mTextView;
     private GoogleApiClient mGoogleApiClient;
-    MyReceiver myReceiver;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -44,15 +40,15 @@ public class MainActivity extends Activity implements
         stub.setOnLayoutInflatedListener(new WatchViewStub.OnLayoutInflatedListener() {
             @Override
             public void onLayoutInflated(WatchViewStub stub) {
-                mTextView = (TextView) stub.findViewById(R.id.text);
+            mTextView = (TextView) stub.findViewById(R.id.text);
             }
         });
 
         mGoogleApiClient = new GoogleApiClient.Builder(this)
-                .addApi(Wearable.API)
-                .addConnectionCallbacks(this)
-                .addOnConnectionFailedListener(this)
-                .build();
+            .addApi(Wearable.API)
+            .addConnectionCallbacks(this)
+            .addOnConnectionFailedListener(this)
+            .build();
     }
 
     @Override
@@ -65,13 +61,6 @@ public class MainActivity extends Activity implements
 
         super.onStart();
 
-        //Register BroadcastReceiver
-        //to receive event from our service
-        myReceiver = new MyReceiver();
-        IntentFilter intentFilter = new IntentFilter();
-        intentFilter.addAction(WearListCallListenerService.SERVICE_ACTION);
-        registerReceiver(myReceiver, intentFilter);
-
         //Start our own service
         Intent intent = new Intent(MainActivity.this, com.qmedic.weartest.WearListCallListenerService.class);
         startService(intent);
@@ -79,22 +68,20 @@ public class MainActivity extends Activity implements
 
     @Override
     protected void onStop() {
-        unregisterReceiver(myReceiver);
         super.onStop();
     }
 
 
     @Override
     public void onConnected(Bundle bundle) {
-
+        // TODO: Handle case when app first connects to wear device?
     }
 
     @Override
     public void onConnectionSuspended(int i) {
-
+        // TODO: Handle case when app is suspended from wear device? (Figure out what that means...)
     }
 
-    public static String SERVICE_CALLED_WEAR = "WearService";
     @Override
     public void onDataChanged(DataEventBuffer dataEvents) {
         for (DataEvent event : dataEvents) {
@@ -105,108 +92,18 @@ public class MainActivity extends Activity implements
                 if (map.containsKey(SERVICE_CALLED_WEAR)) {
                     Asset asset = map.getAsset(SERVICE_CALLED_WEAR);
                     String msg = new String(asset.getData());
-                    Log.d("QMEDIC", msg);
+                    Log.d(TAG, msg);
+
+                    if (mTextView != null) {
+                        mTextView.setText(msg);
+                    }
                 }
             }
         }
     }
-    /*
-    @Override
-    public void onDataChanged(DataEventBuffer dataEvents) {
-        mTextView.setText("Data has changed at " + new Date().toString());
-
-        for (DataEvent event : dataEvents) {
-            if (event.getType() == DataEvent.TYPE_CHANGED &&
-                    event.getDataItem().getUri().getPath().equals("/txt")) {
-                // Get the Asset object
-                DataMapItem dataMapItem = DataMapItem.fromDataItem(event.getDataItem());
-                Asset asset = dataMapItem.getDataMap().getAsset("com.example.company.key.TXT");
-
-                ConnectionResult result =
-                        mGoogleApiClient.blockingConnect(10000, TimeUnit.MILLISECONDS);
-                if (!result.isSuccess()) {
-                    return;
-                }
-
-                // Convert asset into a file descriptor and block until it's ready
-                InputStream assetInputStream = Wearable.DataApi.getFdForAsset(
-                        mGoogleApiClient, asset).await().getInputStream();
-
-                if (assetInputStream == null) {
-                    return;
-                }
-            }
-        }
-
-        for (DataEvent event : dataEvents) {
-            if (event.getType() == DataEvent.TYPE_CHANGED)
-                    //&& event.getDataItem().getUri().getPath().equals("/gz"))
-            {
-                // Get the Asset object
-                DataMapItem dataMapItem = DataMapItem.fromDataItem(event.getDataItem());
-                Asset asset = dataMapItem.getDataMap().getAsset("qmedic");
-
-                ConnectionResult result =  mGoogleApiClient.blockingConnect(10000, TimeUnit.MILLISECONDS);
-                if (!result.isSuccess()) {return;}
-
-
-                // Convert asset into a file descriptor and block until it's ready
-                InputStream assetInputStream = Wearable.DataApi.getFdForAsset(
-                        mGoogleApiClient, asset).await().getInputStream();
-                mGoogleApiClient.disconnect();
-                if (assetInputStream == null) { return; }
-
-                // Get folder for output
-                File sdcard = Environment.getExternalStorageDirectory();
-                File dir = new File(sdcard.getAbsolutePath() + "/spades/");
-                if (!dir.exists()) { dir.mkdirs(); } // Create folder if needed
-
-                // Read data from the Asset and write it to a file on external storage
-                final File file = new File(dir, "stuff.gz");
-                try {
-                    FileOutputStream fOut = new FileOutputStream(file);
-                    int nRead;
-                    byte[] data = new byte[16384];
-                    while ((nRead = assetInputStream.read(data, 0, data.length)) != -1) {
-                        fOut.write(data, 0, nRead);
-                    }
-
-                    fOut.flush();
-                    fOut.close();
-                }
-                catch (Exception e)
-                {
-                    Log.e(TAG + "-APP", "Failed to do stuff: " + e.toString());
-                }
-
-                // Rescan folder to make it appear
-                try {
-                    String[] paths = new String[1];
-                    paths[0] = file.getAbsolutePath();
-                    MediaScannerConnection.scanFile(this, paths, null, null);
-                } catch (Exception e) {
-                    Log.e(TAG + "-APP", "Failed to do stuff: " + e.toString());
-                }
-            }
-        }
-
-    }*/
 
     @Override
     public void onConnectionFailed(ConnectionResult connectionResult) {
-
-    }
-
-    private class MyReceiver extends BroadcastReceiver {
-
-        @Override
-        public void onReceive(Context arg0, Intent arg1) {
-            // TODO Auto-generated method stub
-
-            String txt = arg1.getStringExtra("DATAPASSED");
-            if (txt == null) return;
-
-            mTextView.setText(txt);
-        }
+        // TODO: Figure out what to do when when connection to device fails?
     }
 }
