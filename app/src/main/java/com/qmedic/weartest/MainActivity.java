@@ -1,10 +1,14 @@
 package com.qmedic.weartest;
 
 import android.app.Activity;
+import android.content.BroadcastReceiver;
+import android.content.Context;
 import android.content.Intent;
+import android.content.IntentFilter;
 import android.net.Uri;
 import android.os.Bundle;
 import android.os.RemoteException;
+import android.support.v4.content.LocalBroadcastManager;
 import android.support.wearable.view.WatchViewStub;
 import android.util.Log;
 import android.widget.TextView;
@@ -25,11 +29,14 @@ import com.google.android.gms.wearable.DataMap;
 import com.google.android.gms.wearable.DataMapItem;
 import com.google.android.gms.wearable.Wearable;
 
+import java.util.List;
+
 public class MainActivity extends Activity implements
         DataApi.DataListener, ConnectionCallbacks, OnConnectionFailedListener {
 
-    private static final String SERVICE_CALLED_WEAR = "WearService";
-    private static final String TAG = "QMEDIC_APP";
+    private static final String SERVICE_CALLED_WEAR = "DATAPASSED";
+    private static final String TAG = "SPADES_APP";
+    private static final String INTENT_FILTER = "SPADES_INTENT_FILTER";
     private static final String ESTIMOTE_PROXIMITY_UUID = "B9407F30-F5F8-466E-AFF9-25556B57FE6D";
     private static final Region ALL_ESTIMOTE_BEACONS = new Region("regionId", ESTIMOTE_PROXIMITY_UUID, null, null);
 
@@ -53,8 +60,8 @@ public class MainActivity extends Activity implements
         mBeaconManager = new BeaconManager(this.getApplicationContext());
         mBeaconManager.setRangingListener(new BeaconManager.RangingListener() {
             @Override
-            public void onBeaconsDiscovered(android.graphics.Region region, List<Beacon> beacons) {
-            Log.d(TAG, "Beacons: " + beacons);
+            public void onBeaconsDiscovered(Region region, List<Beacon> beacons) {
+                Log.d(TAG, "Beacons: " + beacons);
             }
         });
 
@@ -63,7 +70,23 @@ public class MainActivity extends Activity implements
             .addConnectionCallbacks(this)
             .addOnConnectionFailedListener(this)
             .build();
+
+        LocalBroadcastManager
+            .getInstance(this)
+            .registerReceiver(localReceiver, new IntentFilter(INTENT_FILTER));
+
+        startService(new Intent(MainActivity.this, WearListCallListenerService.class));
     }
+
+    private BroadcastReceiver localReceiver = new BroadcastReceiver() {
+        @Override
+        public void onReceive(Context context, Intent intent) {
+            String msg = intent.getStringExtra(WearListCallListenerService.SERVICE_ACTION);
+            if (mTextView != null) {
+                mTextView.setText(msg);
+            }
+        }
+    };
 
     @Override
     protected void onPause() {
@@ -106,6 +129,7 @@ public class MainActivity extends Activity implements
     protected void onDestroy() {
         super.onDestroy();
         mBeaconManager.disconnect();
+        LocalBroadcastManager.getInstance(this).unregisterReceiver(localReceiver);
     }
 
     @Override
