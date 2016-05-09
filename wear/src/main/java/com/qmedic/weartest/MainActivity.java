@@ -10,6 +10,7 @@ import android.hardware.SensorManager;
 import android.os.Bundle;
 import android.support.wearable.view.WatchViewStub;
 import android.util.Log;
+import android.view.WindowManager;
 import android.widget.TextView;
 
 import com.google.android.gms.common.ConnectionResult;
@@ -58,7 +59,6 @@ public class MainActivity extends Activity implements SensorEventListener,
                 @Override
                 public void onConnected(Bundle connectionHint) {
                     Log.d(TAG, "onConnected: " + connectionHint);
-                    // Now you can use the Data Layer API
                 }
 
                 @Override
@@ -76,7 +76,7 @@ public class MainActivity extends Activity implements SensorEventListener,
             .build();
 
         // keep screen on (debug only)
-        // getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
+        getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
     }
 
     @Override
@@ -124,7 +124,7 @@ public class MainActivity extends Activity implements SensorEventListener,
 
                 DecimalFormat df = new DecimalFormat("###.##");
                 SimpleDateFormat sdf = new SimpleDateFormat("yyyy-MM-dd_HH");
-                String text = String.format(
+                    String text = String.format(
                     "%s, %s, %s, %s",
                     sdf.format(date),
                     df.format(x),
