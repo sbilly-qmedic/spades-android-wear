@@ -21,6 +21,9 @@ import com.google.android.gms.wearable.PutDataMapRequest;
 import com.google.android.gms.wearable.PutDataRequest;
 import com.google.android.gms.wearable.Wearable;
 
+import java.io.FileOutputStream;
+import java.io.IOException;
+import java.io.OutputStreamWriter;
 import java.text.DecimalFormat;
 import java.text.SimpleDateFormat;
 import java.util.Date;
@@ -28,13 +31,19 @@ import java.util.Date;
 public class MainActivity extends Activity implements SensorEventListener,
         GoogleApiClient.ConnectionCallbacks, GoogleApiClient.OnConnectionFailedListener {
 
-    private TextView mTextView;
     private static final String TAG = "QMEDIC_WEAR";
     private static final String SERVICE_CALLED_WEAR = "QMEDIC_DATA_MESSAGE";
+    private static final String HEADER_LINE = "HEADER_TIMESTAMP,X,Y,Z\n";
+    private static final int BUFFER_SIZE = 4096;
 
     private GoogleApiClient mGoogleApiClient;
     private SensorManager mSensorMgr;
     private Sensor mAccel;
+    private TextView mTextView;
+    private StringBuilder buffer = new StringBuilder();
+    private String lastFileName = null;
+    private String fileToTransfer = null;
+    private OutputStreamWriter currentWriter = null;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -115,17 +124,20 @@ public class MainActivity extends Activity implements SensorEventListener,
 
     @Override
     public void onSensorChanged(SensorEvent event) {
+        String text = null;
+        Date date = null;
+
         switch (event.sensor.getType()) {
             case Sensor.TYPE_ACCELEROMETER:
-                Date date = new Date(event.timestamp);
+                date = new Date(event.timestamp);
                 float x = event.values[0];
                 float y = event.values[1];
                 float z = event.values[2];
 
                 DecimalFormat df = new DecimalFormat("###.##");
-                SimpleDateFormat sdf = new SimpleDateFormat("yyyy-MM-dd_HH");
-                    String text = String.format(
-                    "%s, %s, %s, %s",
+                SimpleDateFormat sdf = new SimpleDateFormat("yyyy/MM/dd HH:mm:ss.SSS");
+                text = String.format(
+                    "%s, %s, %s, %s\n",
                     sdf.format(date),
                     df.format(x),
                     df.format(y),
@@ -135,13 +147,85 @@ public class MainActivity extends Activity implements SensorEventListener,
                     mTextView.setText(text);
                 }
 
-                broadcastMessage(text.getBytes(), "txt");
+                //broadcastMessage(text.getBytes(), "txt");
+                writeMessage(date, text);
 
             case Sensor.TYPE_HEART_RATE:
                 // TODO: do some heart rate stuff
 
             default:
                 // ignore
+        }
+
+        if (date != null && text != null) {
+            writeMessage(date, text);
+        }
+    }
+
+    private void writeMessage(final Date date, final String msg) {
+        boolean sendFile = shouldSendFile(date);
+
+        buffer.append(msg);
+        if (buffer.length() >= BUFFER_SIZE || sendFile) {
+            try {
+                OutputStreamWriter writer = getFileToWrite(date);
+                if (writer != null) {
+                    writer.write(msg);
+                }
+            } catch (IOException ex) {
+                Log.w(TAG, ex.getMessage());
+            }
+        }
+
+        // check if we should send file contents to device
+        if (sendFile) {
+            closeCurrentWriter();
+            queueFileTransfer();
+        }
+    }
+
+    private String getTempFileName(final Date date) {
+        SimpleDateFormat sdf = new SimpleDateFormat("yyyy-MM-dd_HH_mm_ss");
+        return "temp-" + sdf.format(date) + ".csv";
+    }
+
+    private boolean shouldSendFile(final Date date) {
+        return getTempFileName(date) != lastFileName;
+    }
+
+    private OutputStreamWriter getFileToWrite(final Date date) {
+        String tempFileName = getTempFileName(date);
+        if (lastFileName != tempFileName || currentWriter == null) {
+            fileToTransfer = lastFileName;
+            lastFileName = tempFileName;
+
+            closeCurrentWriter();
+        }
+
+        try {
+            if (currentWriter == null) {
+                FileOutputStream outStream = openFileOutput(lastFileName, MODE_APPEND);
+
+                OutputStreamWriter writer = new OutputStreamWriter(outStream);
+                writer.append(HEADER_LINE);
+                currentWriter = writer;
+            }
+        } catch (IOException ex) {
+            Log.e(TAG, ex.getMessage());
+        }
+
+        return currentWriter;
+    }
+
+    private void closeCurrentWriter() {
+        if (currentWriter == null) return;
+
+        try {
+            currentWriter.close();
+        } catch (IOException ex) {
+            Log.i(TAG, "Closing current writer. Got: " + ex.getMessage());
+        } finally {
+            currentWriter = null;
         }
     }
 
@@ -180,5 +264,12 @@ public class MainActivity extends Activity implements SensorEventListener,
         dataMap.getDataMap().putAsset(SERVICE_CALLED_WEAR, asset);
         PutDataRequest request = dataMap.asPutDataRequest();
         Wearable.DataApi.putDataItem(mGoogleApiClient, request);
+    }
+
+    private void queueFileTransfer() {
+        if (fileToTransfer == null) return;
+        // Add file compression logic
+        // Add file transfer logic
+        fileToTransfer = null;
     }
 }
