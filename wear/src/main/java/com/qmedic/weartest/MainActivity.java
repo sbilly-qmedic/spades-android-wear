@@ -21,12 +21,15 @@ import com.google.android.gms.wearable.PutDataMapRequest;
 import com.google.android.gms.wearable.PutDataRequest;
 import com.google.android.gms.wearable.Wearable;
 
+import java.io.ByteArrayOutputStream;
+import java.io.FileInputStream;
 import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.OutputStreamWriter;
 import java.text.DecimalFormat;
 import java.text.SimpleDateFormat;
 import java.util.Date;
+import java.util.zip.GZIPOutputStream;
 
 public class MainActivity extends Activity implements SensorEventListener,
         GoogleApiClient.ConnectionCallbacks, GoogleApiClient.OnConnectionFailedListener {
@@ -129,7 +132,7 @@ public class MainActivity extends Activity implements SensorEventListener,
 
         switch (event.sensor.getType()) {
             case Sensor.TYPE_ACCELEROMETER:
-                date = new Date(event.timestamp);
+                date = getDateFromEvent(event);
                 float x = event.values[0];
                 float y = event.values[1];
                 float z = event.values[2];
@@ -160,6 +163,17 @@ public class MainActivity extends Activity implements SensorEventListener,
         if (date != null && text != null) {
             writeMessage(date, text);
         }
+    }
+
+    /**
+     * Gets the datetime from the event timestamp. (Credit: http://stackoverflow.com/a/9333605)
+     * @param sensorEvent - The sensor event containing the timestamp
+     * @return {Date} - The datetime of the event
+     */
+    private Date getDateFromEvent(SensorEvent sensorEvent) {
+        long timeInMillis = (new Date()).getTime()
+                + (sensorEvent.timestamp - System.nanoTime()) / 1000000L;
+        return new Date(timeInMillis);
     }
 
     private void writeMessage(final Date date, final String msg) {
@@ -264,12 +278,58 @@ public class MainActivity extends Activity implements SensorEventListener,
         dataMap.getDataMap().putAsset(SERVICE_CALLED_WEAR, asset);
         PutDataRequest request = dataMap.asPutDataRequest();
         Wearable.DataApi.putDataItem(mGoogleApiClient, request);
+
+        // add method to delete on successful transfer
     }
 
     private void queueFileTransfer() {
         if (fileToTransfer == null) return;
+
+        String gzipFileName = fileToTransfer + ".gz";
+        byte[] buffer = new byte[BUFFER_SIZE];
+        int len;
+
         // Add file compression logic
+        try {
+            FileInputStream inStream = openFileInput(fileToTransfer);
+            GZIPOutputStream outputStream = new GZIPOutputStream(openFileOutput(gzipFileName, MODE_APPEND));
+            while ((len = inStream.read(buffer)) > 0) {
+                outputStream.write(buffer, 0, len);
+            }
+
+            inStream.close();
+            outputStream.finish();
+            outputStream.close();
+        } catch (IOException ex) {
+            Log.w(TAG, "Failed to compress file " + fileToTransfer + ": " + ex.getMessage());
+            return;
+        }
+
         // Add file transfer logic
+        ByteArrayOutputStream out = null;
+        try {
+            FileInputStream in = openFileInput(gzipFileName);
+            out = new ByteArrayOutputStream();
+            while ((len = in.read(buffer)) > 0) {
+                out.write(buffer, 0, len);
+            }
+
+            in.close();
+        } catch (Exception ex) {
+            Log.w(TAG, "Failed to get file output stream for " + fileToTransfer + ": " + ex.getMessage());
+            return;
+        }
+
+        if (out == null) return;
+        try {
+            out.close();
+
+            broadcastMessage(out.toByteArray(), "gz");
+        } catch (Exception ex) {
+            Log.w(TAG, "Failed to transfer file " + fileToTransfer + ": " + ex.getMessage());
+            return;
+        }
+
         fileToTransfer = null;
     }
 }
