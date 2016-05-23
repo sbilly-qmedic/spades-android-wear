@@ -203,7 +203,8 @@ public class MainActivity extends Activity implements SensorEventListener,
 
     private String getTempFileName(final Date date) {
         SimpleDateFormat sdf = new SimpleDateFormat("yyyy-MM-dd_HH_mm_ss");
-        return "temp-" + sdf.format(date) + ".csv";
+        Date d = shouldSendFile(date) ? date : tempFileExpirationDateTime;
+        return "temp-" + sdf.format(d) + ".csv";
     }
 
     private void setExpiration(final Date date) {
