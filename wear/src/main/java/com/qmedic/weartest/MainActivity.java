@@ -38,6 +38,7 @@ public class MainActivity extends Activity implements SensorEventListener,
     private static final String SERVICE_CALLED_WEAR = "QMEDIC_DATA_MESSAGE";
     private static final String HEADER_LINE = "HEADER_TIMESTAMP,X,Y,Z\n";
     private static final int BUFFER_SIZE = 4096;
+    private static final int EXPIRATION_IN_MS = 30000;
 
     private GoogleApiClient mGoogleApiClient;
     private SensorManager mSensorMgr;
@@ -47,6 +48,7 @@ public class MainActivity extends Activity implements SensorEventListener,
     private String lastFileName = null;
     private String fileToTransfer = null;
     private OutputStreamWriter currentWriter = null;
+    private Date tempFileExpirationDateTime = null;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -193,6 +195,7 @@ public class MainActivity extends Activity implements SensorEventListener,
 
         // check if we should send file contents to device
         if (sendFile) {
+            setExpiration(date);
             closeCurrentWriter();
             queueFileTransfer();
         }
@@ -203,8 +206,14 @@ public class MainActivity extends Activity implements SensorEventListener,
         return "temp-" + sdf.format(date) + ".csv";
     }
 
+    private void setExpiration(final Date date) {
+        tempFileExpirationDateTime = date;
+        tempFileExpirationDateTime.setTime(tempFileExpirationDateTime.getTime() + EXPIRATION_IN_MS);
+    }
+
     private boolean shouldSendFile(final Date date) {
-        return getTempFileName(date) != lastFileName;
+        if (tempFileExpirationDateTime == null) setExpiration(date);
+        return date.compareTo(tempFileExpirationDateTime) > 0;
     }
 
     private OutputStreamWriter getFileToWrite(final Date date) {
