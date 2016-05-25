@@ -8,6 +8,7 @@ import android.hardware.SensorEvent;
 import android.hardware.SensorEventListener;
 import android.hardware.SensorManager;
 import android.os.Bundle;
+import android.service.carrier.CarrierMessagingService;
 import android.support.wearable.view.WatchViewStub;
 import android.util.Log;
 import android.view.WindowManager;
@@ -16,7 +17,10 @@ import android.widget.TextView;
 import com.google.android.gms.common.ConnectionResult;
 import com.google.android.gms.common.api.GoogleApiClient;
 
+import com.google.android.gms.common.api.PendingResult;
+import com.google.android.gms.common.api.ResultCallback;
 import com.google.android.gms.wearable.Asset;
+import com.google.android.gms.wearable.DataApi;
 import com.google.android.gms.wearable.PutDataMapRequest;
 import com.google.android.gms.wearable.PutDataRequest;
 import com.google.android.gms.wearable.Wearable;
@@ -47,6 +51,7 @@ public class MainActivity extends Activity implements SensorEventListener,
     private StringBuilder buffer = new StringBuilder();
     private String lastFileName = null;
     private String fileToTransfer = null;
+    private String compressedFileToTransfer = null;
     private OutputStreamWriter currentWriter = null;
     private Date tempFileExpirationDateTime = null;
 
@@ -58,7 +63,7 @@ public class MainActivity extends Activity implements SensorEventListener,
         stub.setOnLayoutInflatedListener(new WatchViewStub.OnLayoutInflatedListener() {
             @Override
             public void onLayoutInflated(WatchViewStub stub) {
-            mTextView = (TextView) stub.findViewById(R.id.text);
+                mTextView = (TextView) stub.findViewById(R.id.text);
             }
         });
 
@@ -170,6 +175,7 @@ public class MainActivity extends Activity implements SensorEventListener,
      * @return {Date} - The datetime of the event
      */
     private Date getDateFromEvent(SensorEvent sensorEvent) {
+        //TODO: Time is off by a few days + hours....investigate this a bit more
         long timeInMillis = (new Date()).getTime()
                 + (sensorEvent.timestamp - System.nanoTime()) / 1000000L;
         return new Date(timeInMillis);
@@ -282,14 +288,14 @@ public class MainActivity extends Activity implements SensorEventListener,
     private void queueFileTransfer() {
         if (fileToTransfer == null) return;
 
-        String gzipFileName = fileToTransfer + ".gz";
+        compressedFileToTransfer = fileToTransfer + ".gz";
         byte[] buffer = new byte[BUFFER_SIZE];
         int len;
 
         // Compress file contents
         try {
             FileInputStream inStream = openFileInput(fileToTransfer);
-            GZIPOutputStream outputStream = new GZIPOutputStream(openFileOutput(gzipFileName, MODE_APPEND));
+            GZIPOutputStream outputStream = new GZIPOutputStream(openFileOutput(compressedFileToTransfer, MODE_APPEND));
             while ((len = inStream.read(buffer)) > 0) {
                 outputStream.write(buffer, 0, len);
             }
@@ -305,7 +311,7 @@ public class MainActivity extends Activity implements SensorEventListener,
         // Transform compressed file into an output stream
         ByteArrayOutputStream out = null;
         try {
-            FileInputStream in = openFileInput(gzipFileName);
+            FileInputStream in = openFileInput(compressedFileToTransfer);
             out = new ByteArrayOutputStream();
             while ((len = in.read(buffer)) > 0) {
                 out.write(buffer, 0, len);
@@ -313,7 +319,7 @@ public class MainActivity extends Activity implements SensorEventListener,
 
             in.close();
         } catch (Exception ex) {
-            Log.w(TAG, "Failed to get file output stream for " + fileToTransfer + ": " + ex.getMessage());
+            Log.w(TAG, "Failed to get file output stream for " + compressedFileToTransfer + ": " + ex.getMessage());
             return;
         }
 
@@ -323,12 +329,10 @@ public class MainActivity extends Activity implements SensorEventListener,
 
             broadcastMessage(out.toByteArray(), "gz");
         } catch (Exception ex) {
-            Log.w(TAG, "Failed to transfer file " + fileToTransfer + ": " + ex.getMessage());
+            Log.w(TAG, "Failed to transfer file " + compressedFileToTransfer + ": " + ex.getMessage());
             return;
         }
 
-        // prep the file name for the next item to transfer
-        fileToTransfer = null;
     }
 
     /**
@@ -345,8 +349,24 @@ public class MainActivity extends Activity implements SensorEventListener,
         PutDataMapRequest dataMap = PutDataMapRequest.create(extension);
         dataMap.getDataMap().putAsset(SERVICE_CALLED_WEAR, asset);
         PutDataRequest request = dataMap.asPutDataRequest();
-        Wearable.DataApi.putDataItem(mGoogleApiClient, request);
+        PendingResult<DataApi.DataItemResult> pendingResult = Wearable.DataApi.putDataItem(mGoogleApiClient, request);
+        pendingResult.setResultCallback(new ResultCallback<DataApi.DataItemResult>() {
+            @Override
+            public void onResult(final DataApi.DataItemResult result) {
+                if (result.getStatus().isSuccess()) {
+                    Log.i(TAG, "File '" + compressedFileToTransfer + "' was successfully sent to device.");
 
-        // add method to delete on successful transfer
+                    if (deleteFile(fileToTransfer)) {
+                        Log.i(TAG, "Deleted the last sent file " + fileToTransfer);
+                        fileToTransfer = null;
+                    }
+
+                    if (deleteFile(compressedFileToTransfer)) {
+                        Log.i(TAG, "Deleted the gzipped last sent file " + compressedFileToTransfer);
+                        compressedFileToTransfer = null;
+                    }
+                }
+            }
+        });
     }
 }
