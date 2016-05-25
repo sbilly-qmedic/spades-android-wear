@@ -37,8 +37,8 @@ public class MainActivity extends Activity implements SensorEventListener,
     private static final String TAG = "QMEDIC_WEAR";
     private static final String SERVICE_CALLED_WEAR = "QMEDIC_DATA_MESSAGE";
     private static final String HEADER_LINE = "HEADER_TIMESTAMP,X,Y,Z\n";
-    private static final int BUFFER_SIZE = 4096;
-    private static final int EXPIRATION_IN_MS = 30000;
+    private static final int BUFFER_SIZE = 8192;
+    private static final int EXPIRATION_IN_MS = 30 * 1000; // 60 * 60 * 1000; // 1 hour (1000ms * 60s * 60min)
 
     private GoogleApiClient mGoogleApiClient;
     private SensorManager mSensorMgr;
@@ -148,18 +148,15 @@ public class MainActivity extends Activity implements SensorEventListener,
                     df.format(y),
                     df.format(z));
 
-                if (mTextView != null) {
-                    mTextView.setText(text);
-                }
-
-                //broadcastMessage(text.getBytes(), "txt");
-                writeMessage(date, text);
-
             case Sensor.TYPE_HEART_RATE:
                 // TODO: do some heart rate stuff
 
             default:
                 // ignore
+        }
+
+        if (mTextView != null) {
+            mTextView.setText(text);
         }
 
         if (date != null && text != null) {
@@ -178,6 +175,11 @@ public class MainActivity extends Activity implements SensorEventListener,
         return new Date(timeInMillis);
     }
 
+    /**
+     * Send the message to be written and potentially queued to device
+     * @param date - The datetime of the message
+     * @param msg - The messsage to be sent
+     */
     private void writeMessage(final Date date, final String msg) {
         boolean sendFile = shouldSendFile(date);
 
@@ -186,7 +188,8 @@ public class MainActivity extends Activity implements SensorEventListener,
             try {
                 OutputStreamWriter writer = getFileToWrite(date);
                 if (writer != null) {
-                    writer.write(msg);
+                    writer.write(buffer.toString());
+                    buffer.setLength(0);
                 }
             } catch (IOException ex) {
                 Log.w(TAG, ex.getMessage());
@@ -219,7 +222,7 @@ public class MainActivity extends Activity implements SensorEventListener,
 
     private OutputStreamWriter getFileToWrite(final Date date) {
         String tempFileName = getTempFileName(date);
-        if (lastFileName != tempFileName || currentWriter == null) {
+        if (!tempFileName.equals(lastFileName) || currentWriter == null) {
             fileToTransfer = lastFileName;
             lastFileName = tempFileName;
 
@@ -231,7 +234,7 @@ public class MainActivity extends Activity implements SensorEventListener,
                 FileOutputStream outStream = openFileOutput(lastFileName, MODE_APPEND);
 
                 OutputStreamWriter writer = new OutputStreamWriter(outStream);
-                writer.append(HEADER_LINE);
+                writer.write(HEADER_LINE);
                 currentWriter = writer;
             }
         } catch (IOException ex) {
@@ -274,6 +277,61 @@ public class MainActivity extends Activity implements SensorEventListener,
     }
 
     /**
+     * Get the latest file to transfer ready to be transferred to the device for futher analysis.
+     */
+    private void queueFileTransfer() {
+        if (fileToTransfer == null) return;
+
+        String gzipFileName = fileToTransfer + ".gz";
+        byte[] buffer = new byte[BUFFER_SIZE];
+        int len;
+
+        // Compress file contents
+        try {
+            FileInputStream inStream = openFileInput(fileToTransfer);
+            GZIPOutputStream outputStream = new GZIPOutputStream(openFileOutput(gzipFileName, MODE_APPEND));
+            while ((len = inStream.read(buffer)) > 0) {
+                outputStream.write(buffer, 0, len);
+            }
+
+            inStream.close();
+            outputStream.finish();
+            outputStream.close();
+        } catch (IOException ex) {
+            Log.w(TAG, "Failed to compress file " + fileToTransfer + ": " + ex.getMessage());
+            return;
+        }
+
+        // Transform compressed file into an output stream
+        ByteArrayOutputStream out = null;
+        try {
+            FileInputStream in = openFileInput(gzipFileName);
+            out = new ByteArrayOutputStream();
+            while ((len = in.read(buffer)) > 0) {
+                out.write(buffer, 0, len);
+            }
+
+            in.close();
+        } catch (Exception ex) {
+            Log.w(TAG, "Failed to get file output stream for " + fileToTransfer + ": " + ex.getMessage());
+            return;
+        }
+
+        // Broadcast output stream to a listening device
+        try {
+            out.close();
+
+            broadcastMessage(out.toByteArray(), "gz");
+        } catch (Exception ex) {
+            Log.w(TAG, "Failed to transfer file " + fileToTransfer + ": " + ex.getMessage());
+            return;
+        }
+
+        // prep the file name for the next item to transfer
+        fileToTransfer = null;
+    }
+
+    /**
      * Broadcasts the message (in bytes) to those connect to the local google client
      *
      * @param messageInBytes - The message to be broadcasted in bytes
@@ -290,56 +348,5 @@ public class MainActivity extends Activity implements SensorEventListener,
         Wearable.DataApi.putDataItem(mGoogleApiClient, request);
 
         // add method to delete on successful transfer
-    }
-
-    private void queueFileTransfer() {
-        if (fileToTransfer == null) return;
-
-        String gzipFileName = fileToTransfer + ".gz";
-        byte[] buffer = new byte[BUFFER_SIZE];
-        int len;
-
-        // Add file compression logic
-        try {
-            FileInputStream inStream = openFileInput(fileToTransfer);
-            GZIPOutputStream outputStream = new GZIPOutputStream(openFileOutput(gzipFileName, MODE_APPEND));
-            while ((len = inStream.read(buffer)) > 0) {
-                outputStream.write(buffer, 0, len);
-            }
-
-            inStream.close();
-            outputStream.finish();
-            outputStream.close();
-        } catch (IOException ex) {
-            Log.w(TAG, "Failed to compress file " + fileToTransfer + ": " + ex.getMessage());
-            return;
-        }
-
-        // Add file transfer logic
-        ByteArrayOutputStream out = null;
-        try {
-            FileInputStream in = openFileInput(gzipFileName);
-            out = new ByteArrayOutputStream();
-            while ((len = in.read(buffer)) > 0) {
-                out.write(buffer, 0, len);
-            }
-
-            in.close();
-        } catch (Exception ex) {
-            Log.w(TAG, "Failed to get file output stream for " + fileToTransfer + ": " + ex.getMessage());
-            return;
-        }
-
-        if (out == null) return;
-        try {
-            out.close();
-
-            broadcastMessage(out.toByteArray(), "gz");
-        } catch (Exception ex) {
-            Log.w(TAG, "Failed to transfer file " + fileToTransfer + ": " + ex.getMessage());
-            return;
-        }
-
-        fileToTransfer = null;
     }
 }

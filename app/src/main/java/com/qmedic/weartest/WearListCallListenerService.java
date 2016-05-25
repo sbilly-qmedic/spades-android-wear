@@ -178,8 +178,6 @@ public class WearListCallListenerService extends WearableListenerService {
                         Log.w(TAG, "Failed to decompress gzip contents: " + ex.getMessage());
                     }
 
-
-
                     if (msg != null) {
                         Intent intent = new Intent(INTENT_FILTER);
                         intent.putExtra(SERVICE_ACTION, msg);
