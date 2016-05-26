@@ -39,6 +39,7 @@ public class MainActivity extends Activity implements SensorEventListener,
     private static final String TAG = "QMEDIC_WEAR";
     private static final String SERVICE_CALLED_WEAR = "QMEDIC_DATA_MESSAGE";
     private static final String HEADER_LINE = "HEADER_TIMESTAMP,X,Y,Z\n";
+    private static final int BUFFER_SIZE = 4096;
     private static final int EXPIRATION_IN_MS = 30 * 1000; // 60 * 60 * 1000; // 1 hour (1000ms * 60s * 60min)
 
     private GoogleApiClient mGoogleApiClient;
@@ -397,7 +398,7 @@ DONE
     - estimated file size for an hour of data = ~4.5MB --> compressed = ~550KB (yay!)
     - delete file contents (both raw and compressed) after successful file transfer
     - Push compression work into another thread (NEEDS TESTING)
-    
+
     NEXT
 
     - Fix issue with event time
