@@ -2,13 +2,11 @@ package com.qmedic.weartest;
 
 import android.app.Activity;
 import android.content.Context;
-import android.graphics.Region;
 import android.hardware.Sensor;
 import android.hardware.SensorEvent;
 import android.hardware.SensorEventListener;
 import android.hardware.SensorManager;
 import android.os.Bundle;
-import android.service.carrier.CarrierMessagingService;
 import android.support.wearable.view.WatchViewStub;
 import android.util.Log;
 import android.view.WindowManager;
@@ -41,7 +39,6 @@ public class MainActivity extends Activity implements SensorEventListener,
     private static final String TAG = "QMEDIC_WEAR";
     private static final String SERVICE_CALLED_WEAR = "QMEDIC_DATA_MESSAGE";
     private static final String HEADER_LINE = "HEADER_TIMESTAMP,X,Y,Z\n";
-    private static final int BUFFER_SIZE = 8192;
     private static final int EXPIRATION_IN_MS = 30 * 1000; // 60 * 60 * 1000; // 1 hour (1000ms * 60s * 60min)
 
     private GoogleApiClient mGoogleApiClient;
@@ -51,7 +48,6 @@ public class MainActivity extends Activity implements SensorEventListener,
     private StringBuilder buffer = new StringBuilder();
     private String lastFileName = null;
     private String fileToTransfer = null;
-    private String compressedFileToTransfer = null;
     private OutputStreamWriter currentWriter = null;
     private Date tempFileExpirationDateTime = null;
 
@@ -206,7 +202,8 @@ public class MainActivity extends Activity implements SensorEventListener,
         if (sendFile) {
             setExpiration(date);
             closeCurrentWriter();
-            queueFileTransfer();
+            new Thread(new QueueFileTransferRunner(fileToTransfer)).start();
+            fileToTransfer = null;
         }
     }
 
@@ -282,91 +279,130 @@ public class MainActivity extends Activity implements SensorEventListener,
         //TODO: maybe some management stats here?
     }
 
-    /**
-     * Get the latest file to transfer ready to be transferred to the device for futher analysis.
-     */
-    private void queueFileTransfer() {
-        if (fileToTransfer == null) return;
+    private class QueueFileTransferRunner implements Runnable {
+        private static final int BUFFER_SIZE = 8192;
+        private static final String FILE_TRANSFER_TAG = TAG + " - Runner";
+        private static final String EXTENSION = "gz";
 
-        compressedFileToTransfer = fileToTransfer + ".gz";
-        byte[] buffer = new byte[BUFFER_SIZE];
-        int len;
+        private String filename;
+        private String compressedFile;
+        public QueueFileTransferRunner(String filename) {
+            this.filename = filename;
+            this.compressedFile = filename + "." + EXTENSION;
+        }
 
-        // Compress file contents
-        try {
-            FileInputStream inStream = openFileInput(fileToTransfer);
-            GZIPOutputStream outputStream = new GZIPOutputStream(openFileOutput(compressedFileToTransfer, MODE_APPEND));
-            while ((len = inStream.read(buffer)) > 0) {
-                outputStream.write(buffer, 0, len);
+        public void run() {
+            if (!createCompressedFile()) {
+                Log.i(FILE_TRANSFER_TAG, "Tried to compress the file but failed");
+                return;
             }
 
-            inStream.close();
-            outputStream.finish();
-            outputStream.close();
-        } catch (IOException ex) {
-            Log.w(TAG, "Failed to compress file " + fileToTransfer + ": " + ex.getMessage());
-            return;
-        }
-
-        // Transform compressed file into an output stream
-        ByteArrayOutputStream out = null;
-        try {
-            FileInputStream in = openFileInput(compressedFileToTransfer);
-            out = new ByteArrayOutputStream();
-            while ((len = in.read(buffer)) > 0) {
-                out.write(buffer, 0, len);
+            byte[] compressedBytes = createByteArrayFromCompressedFile();
+            if (compressedBytes == null) {
+                Log.i(FILE_TRANSFER_TAG, "Tried to get compressed bytes but failed");
+                return;
             }
 
-            in.close();
-        } catch (Exception ex) {
-            Log.w(TAG, "Failed to get file output stream for " + compressedFileToTransfer + ": " + ex.getMessage());
-            return;
+            broadcastMessage(compressedBytes);
         }
 
-        // Broadcast output stream to a listening device
-        try {
-            out.close();
+        /**
+         * Create a file which contains the raw contents gzipped.
+         * @return True if the compression was successful. False, if otherwise.
+         */
+        private boolean createCompressedFile() {
+            byte[] buffer = new byte[BUFFER_SIZE];
+            int len;
 
-            broadcastMessage(out.toByteArray(), "gz");
-        } catch (Exception ex) {
-            Log.w(TAG, "Failed to transfer file " + compressedFileToTransfer + ": " + ex.getMessage());
-            return;
+            // Compress file contents
+            try {
+                FileInputStream inStream = openFileInput(filename);
+                GZIPOutputStream outputStream = new GZIPOutputStream(openFileOutput(compressedFile, MODE_APPEND));
+                while ((len = inStream.read(buffer)) > 0) {
+                    outputStream.write(buffer, 0, len);
+                }
+
+                inStream.close();
+                outputStream.finish();
+                outputStream.close();
+            } catch (IOException ex) {
+                Log.w(FILE_TRANSFER_TAG, "Failed to compress file " + filename + ": " + ex.getMessage());
+                return false;
+            }
+
+            return true;
         }
 
-    }
+        /**
+         * Generate a byte array representing the compressed file contents
+         * @return A byte array of the compressed contents. Null if we failed to generate the file.
+         */
+        private byte[] createByteArrayFromCompressedFile() {
+            byte[] buffer = new byte[BUFFER_SIZE];
+            int len;
+            ByteArrayOutputStream out = null;
 
-    /**
-     * Broadcasts the message (in bytes) to those connect to the local google client
-     *
-     * @param messageInBytes - The message to be broadcasted in bytes
-     */
-    private void broadcastMessage(byte[] messageInBytes, String extension) {
-        Asset asset = Asset.createFromBytes(messageInBytes);
-        if (!extension.startsWith("/")) {
-            extension = "/" + extension;
+            try {
+                FileInputStream in = openFileInput(compressedFile);
+                out = new ByteArrayOutputStream();
+                while ((len = in.read(buffer)) > 0) {
+                    out.write(buffer, 0, len);
+                }
+
+                in.close();
+                out.close();
+            } catch (Exception ex) {
+                Log.w(TAG, "Failed to get file output stream for " + compressedFile + ": " + ex.getMessage());
+                return null;
+            }
+
+            return out.toByteArray();
         }
 
-        PutDataMapRequest dataMap = PutDataMapRequest.create(extension);
-        dataMap.getDataMap().putAsset(SERVICE_CALLED_WEAR, asset);
-        PutDataRequest request = dataMap.asPutDataRequest();
-        PendingResult<DataApi.DataItemResult> pendingResult = Wearable.DataApi.putDataItem(mGoogleApiClient, request);
-        pendingResult.setResultCallback(new ResultCallback<DataApi.DataItemResult>() {
-            @Override
-            public void onResult(final DataApi.DataItemResult result) {
-                if (result.getStatus().isSuccess()) {
-                    Log.i(TAG, "File '" + compressedFileToTransfer + "' was successfully sent to device.");
+        /**
+         * Broadcasts the message (in bytes) to those connect to the local google client
+         * @param messageInBytes - The message to be broadcasted in bytes
+         */
+        private void broadcastMessage(byte[] messageInBytes) {
+            Asset asset = Asset.createFromBytes(messageInBytes);
+            String extension = "/" + EXTENSION;
 
-                    if (deleteFile(fileToTransfer)) {
-                        Log.i(TAG, "Deleted the last sent file " + fileToTransfer);
-                        fileToTransfer = null;
-                    }
+            PutDataMapRequest dataMap = PutDataMapRequest.create(extension);
+            dataMap.getDataMap().putAsset(SERVICE_CALLED_WEAR, asset);
+            PutDataRequest request = dataMap.asPutDataRequest();
+            PendingResult<DataApi.DataItemResult> pendingResult = Wearable.DataApi.putDataItem(mGoogleApiClient, request);
+            pendingResult.setResultCallback(new ResultCallback<DataApi.DataItemResult>() {
+                @Override
+                public void onResult(final DataApi.DataItemResult result) {
+                    if (result.getStatus().isSuccess()) {
+                        Log.i(TAG, "File '" + compressedFile + "' was successfully sent to device.");
 
-                    if (deleteFile(compressedFileToTransfer)) {
-                        Log.i(TAG, "Deleted the gzipped last sent file " + compressedFileToTransfer);
-                        compressedFileToTransfer = null;
+                        if (deleteFile(fileToTransfer)) {
+                            Log.i(TAG, "Deleted the last sent file " + fileToTransfer);
+                        }
+
+                        if (deleteFile(compressedFile)) {
+                            Log.i(TAG, "Deleted the gzipped last sent file " + compressedFile);
+                        }
                     }
                 }
-            }
-        });
+            });
+        }
     }
 }
+
+/*
+DONE
+    - fix bug with showing duplicate messages
+    - estimated file size for an hour of data = ~4.5MB --> compressed = ~550KB (yay!)
+    - delete file contents (both raw and compressed) after successful file transfer
+    - Push compression work into another thread (NEEDS TESTING)
+    
+    NEXT
+
+    - Fix issue with event time
+    - Collect heart rate data as well
+    - Improve logging (i.e., we should be able to know which data set, accelerometer or heart rate, that we're dealing with)
+    - More documentation for all other methods in Wear code
+    - ***Figure out how to get watch/app code to run, even if the screen goes out
+*/
