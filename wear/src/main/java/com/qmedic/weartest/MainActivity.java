@@ -7,6 +7,7 @@ import android.hardware.SensorEvent;
 import android.hardware.SensorEventListener;
 import android.hardware.SensorManager;
 import android.os.Bundle;
+import android.os.SystemClock;
 import android.support.wearable.view.WatchViewStub;
 import android.util.Log;
 import android.view.WindowManager;
@@ -40,17 +41,19 @@ public class MainActivity extends Activity implements SensorEventListener,
     private static final String SERVICE_CALLED_WEAR = "QMEDIC_DATA_MESSAGE";
     private static final String HEADER_LINE = "HEADER_TIMESTAMP,X,Y,Z\n";
     private static final int BUFFER_SIZE = 4096;
-    private static final int EXPIRATION_IN_MS = 30 * 1000; // 60 * 60 * 1000; // 1 hour (1000ms * 60s * 60min)
+    private static final int EXPIRATION_IN_MS = 5 * 1000; // 60 * 60 * 1000; // 1 hour (1000ms * 60s * 60min)
 
     private GoogleApiClient mGoogleApiClient;
     private SensorManager mSensorMgr;
     private Sensor mAccel;
     private TextView mTextView;
     private StringBuilder buffer = new StringBuilder();
-    private String lastFileName = null;
+    private String currentFileName = null;
+    private StringBuilder bufferToTransfer = null;
     private String fileToTransfer = null;
     private OutputStreamWriter currentWriter = null;
     private Date tempFileExpirationDateTime = null;
+    private long mUptimeMillis; // member variable of the activity or service
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -85,7 +88,7 @@ public class MainActivity extends Activity implements SensorEventListener,
             .addOnConnectionFailedListener(new GoogleApiClient.OnConnectionFailedListener() {
                 @Override
                 public void onConnectionFailed(ConnectionResult result) {
-                Log.d(TAG, "onConnectionFailed: " + result);
+                    Log.d(TAG, "onConnectionFailed: " + result);
                 }
             })
             .addApi(Wearable.API)
@@ -112,6 +115,10 @@ public class MainActivity extends Activity implements SensorEventListener,
         if (!mGoogleApiClient.isConnected()) {
             mGoogleApiClient.connect();
         }
+
+        long elapsedRealtime = SystemClock.elapsedRealtime();
+        long currentTimeMillis = System.currentTimeMillis();
+        mUptimeMillis = currentTimeMillis - elapsedRealtime;
     }
 
     @Override
@@ -173,8 +180,7 @@ public class MainActivity extends Activity implements SensorEventListener,
      */
     private Date getDateFromEvent(SensorEvent sensorEvent) {
         //TODO: Time is off by a few days + hours....investigate this a bit more
-        long timeInMillis = (new Date()).getTime()
-                + (sensorEvent.timestamp - System.nanoTime()) / 1000000L;
+        long timeInMillis = ((sensorEvent.timestamp / 1000000) + mUptimeMillis);
         return new Date(timeInMillis);
     }
 
@@ -208,34 +214,53 @@ public class MainActivity extends Activity implements SensorEventListener,
         }
     }
 
+    /**
+     * Get the temp filename for the file being written
+     * @param date - The date to associate the filename with
+     * @return - The temp filename to write to
+     */
     private String getTempFileName(final Date date) {
         SimpleDateFormat sdf = new SimpleDateFormat("yyyy-MM-dd_HH_mm_ss");
         Date d = shouldSendFile(date) ? date : tempFileExpirationDateTime;
         return "temp-" + sdf.format(d) + ".csv";
     }
 
+    /**
+     * Set the expiration date (used with determining when to write to a new file)
+     * @param date - The date used in relation to setting the expiration date
+     */
     private void setExpiration(final Date date) {
         tempFileExpirationDateTime = date;
         tempFileExpirationDateTime.setTime(tempFileExpirationDateTime.getTime() + EXPIRATION_IN_MS);
     }
 
+    /**
+     * Check whether if we should queue the file to be sent to the device
+     * @param date - The date to check against
+     * @return True, if the date is past the expiration. False, if otherwise.
+     */
     private boolean shouldSendFile(final Date date) {
         if (tempFileExpirationDateTime == null) setExpiration(date);
         return date.compareTo(tempFileExpirationDateTime) > 0;
     }
 
+    /**
+     * Get's the output stream writer
+     * @param date - The date used for getting the stream writer (Or creating a new one)
+     * @return - The stream writer, or null if a problem occured
+     */
     private OutputStreamWriter getFileToWrite(final Date date) {
         String tempFileName = getTempFileName(date);
-        if (!tempFileName.equals(lastFileName) || currentWriter == null) {
-            fileToTransfer = lastFileName;
-            lastFileName = tempFileName;
+        if (!tempFileName.equals(currentFileName) || currentWriter == null) {
+            fileToTransfer = currentFileName;
+            currentFileName = tempFileName;
 
             closeCurrentWriter();
         }
 
         try {
             if (currentWriter == null) {
-                FileOutputStream outStream = openFileOutput(lastFileName, MODE_APPEND);
+                FileOutputStream outStream = openFileOutput(currentFileName, MODE_APPEND);
 
                 OutputStreamWriter writer = new OutputStreamWriter(outStream);
                 writer.write(HEADER_LINE);
@@ -248,6 +273,9 @@ public class MainActivity extends Activity implements SensorEventListener,
         return currentWriter;
     }
 
+    /**
+     * Closes the current stream writer
+     */
     private void closeCurrentWriter() {
         if (currentWriter == null) return;
 
@@ -280,6 +308,9 @@ public class MainActivity extends Activity implements SensorEventListener,
         //TODO: maybe some management stats here?
     }
 
+    /**
+     * Runnable class used for queuing a file transfer asynchronously
+     */
     private class QueueFileTransferRunner implements Runnable {
         private static final int BUFFER_SIZE = 8192;
         private static final String FILE_TRANSFER_TAG = TAG + " - Runner";
@@ -393,17 +424,12 @@ public class MainActivity extends Activity implements SensorEventListener,
 }
 
 /*
-DONE
-    - fix bug with showing duplicate messages
-    - estimated file size for an hour of data = ~4.5MB --> compressed = ~550KB (yay!)
-    - delete file contents (both raw and compressed) after successful file transfer
-    - Push compression work into another thread (NEEDS TESTING)
-
-    NEXT
-
-    - Fix issue with event time
-    - Collect heart rate data as well
-    - Improve logging (i.e., we should be able to know which data set, accelerometer or heart rate, that we're dealing with)
-    - More documentation for all other methods in Wear code
-    - ***Figure out how to get watch/app code to run, even if the screen goes out
+    Things to do
+        - Fix issue with event time
+        - Collect heart rate data as well
+        - Regarding the watch sampling rate, there's a property that you can set when you initialize the sensor itself (https://developer.android.com/guide/topics/sensors/sensors_motion.html). I don't remember if it's the same doc for Wear though.
+        - ***Figure out how to get watch/app code to run, even if the screen goes out
+        - Can you try recording a video or send over some images/screenshots of the wear+smartphone apps in action?
+        - [WATCH SAMPLING RATE] Regarding the watch sampling rate, there's a property that you can set when you initialize the sensor itself (https://developer.android.com/guide/topics/sensors/sensors_motion.html). I don't remember if it's the same doc for Wear though.
+        - Make the necessary checks for managing the connection between the watch and the device
 */
