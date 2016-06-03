@@ -6,6 +6,7 @@ import android.hardware.Sensor;
 import android.hardware.SensorEvent;
 import android.hardware.SensorEventListener;
 import android.hardware.SensorManager;
+import android.os.AsyncTask;
 import android.os.Bundle;
 import android.os.SystemClock;
 import android.support.wearable.view.WatchViewStub;
@@ -48,9 +49,7 @@ public class MainActivity extends Activity implements SensorEventListener,
     private Sensor mAccel;
     private TextView mTextView;
     private StringBuilder buffer = new StringBuilder();
-    private String currentFileName = null;
-    private StringBuilder bufferToTransfer = null;
-    private String fileToTransfer = null;
+    private String fileToQueueForTransfer = null;
     private OutputStreamWriter currentWriter = null;
     private Date tempFileExpirationDateTime = null;
     private long mUptimeMillis; // member variable of the activity or service
@@ -190,12 +189,21 @@ public class MainActivity extends Activity implements SensorEventListener,
      * @param msg - The messsage to be sent
      */
     private void writeMessage(final Date date, final String msg) {
-        boolean sendFile = shouldSendFile(date);
+        // check if we should send file contents to device
+        if (shouldSendFile(date)) {
+            flushBufferToFile(fileToQueueForTransfer);
+            setExpiration(date);
+            closeCurrentWriter();
 
+            FileUploadTask task = new FileUploadTask(fileToQueueForTransfer);
+            task.execute();
+        }
+
+        StringBuilder buffer = getBuffer();
         buffer.append(msg);
-        if (buffer.length() >= BUFFER_SIZE || sendFile) {
+        if (buffer.length() >= BUFFER_SIZE) {
             try {
-                OutputStreamWriter writer = getFileToWrite(date);
+                OutputStreamWriter writer = getCurrentWriter(date);
                 if (writer != null) {
                     writer.write(buffer.toString());
                     buffer.setLength(0);
@@ -204,15 +212,31 @@ public class MainActivity extends Activity implements SensorEventListener,
                 Log.w(TAG, ex.getMessage());
             }
         }
+    }
 
-        // check if we should send file contents to device
-        if (sendFile) {
-            setExpiration(date);
-            closeCurrentWriter();
-            new Thread(new QueueFileTransferRunner(fileToTransfer)).start();
-            fileToTransfer = null;
+    public StringBuilder getBuffer() {
+        if (buffer == null) {
+            buffer = new StringBuilder();
+        }
+        return buffer;
+    }
+
+    private void flushBufferToFile(String filename) {
+        StringBuilder buffer = getBuffer();
+        if (buffer.length() == 0) return;
+
+        if (fileToQueueForTransfer == null) return;
+        OutputStreamWriter writer = openNewWriter(fileToQueueForTransfer);
+        if (writer == null) return;
+
+        try {
+            writer.write(buffer.toString());
+            buffer.setLength(0);
+        } catch (IOException ex) {
+            Log.w(TAG, "Failed to empty out buffer contents to file " + fileToQueueForTransfer + ": " + ex.getMessage());
         }
     }
+
 
     /**
      * Get the temp filename for the file being written
@@ -249,28 +273,37 @@ public class MainActivity extends Activity implements SensorEventListener,
      * @param date - The date used for getting the stream writer (Or creating a new one)
      * @return - The stream writer, or null if a problem occured
      */
-    private OutputStreamWriter getFileToWrite(final Date date) {
+    private OutputStreamWriter getCurrentWriter(final Date date) {
         String tempFileName = getTempFileName(date);
-        if (!tempFileName.equals(currentFileName) || currentWriter == null) {
-            fileToTransfer = currentFileName;
-            currentFileName = tempFileName;
-
+        if (!tempFileName.equals(fileToQueueForTransfer) || currentWriter == null) {
+            fileToQueueForTransfer = tempFileName;
             closeCurrentWriter();
         }
 
-        try {
-            if (currentWriter == null) {
-                FileOutputStream outStream = openFileOutput(currentFileName, MODE_APPEND);
+        if (currentWriter == null) {
+            try {
+                OutputStreamWriter writer = openNewWriter(tempFileName);
+                if (writer == null) return null;
 
-                OutputStreamWriter writer = new OutputStreamWriter(outStream);
                 writer.write(HEADER_LINE);
                 currentWriter = writer;
+            } catch (IOException ex) {
+                Log.e(TAG, ex.getMessage());
             }
-        } catch (IOException ex) {
-            Log.e(TAG, ex.getMessage());
         }
 
         return currentWriter;
+    }
+
+
+    private OutputStreamWriter openNewWriter(String filename) {
+        try {
+            FileOutputStream outStream = openFileOutput(filename, MODE_APPEND);
+            return new OutputStreamWriter(outStream);
+        } catch (IOException ex) {
+            Log.e(TAG, ex.getMessage());
+        }
+        return null;
     }
 
     /**
@@ -309,33 +342,58 @@ public class MainActivity extends Activity implements SensorEventListener,
     }
 
     /**
-     * Runnable class used for queuing a file transfer asynchronously
+     * Async task used for queuing a file transfer
      */
-    private class QueueFileTransferRunner implements Runnable {
+    private class FileUploadTask extends AsyncTask<Void, Void, Void> {
         private static final int BUFFER_SIZE = 8192;
         private static final String FILE_TRANSFER_TAG = TAG + " - Runner";
         private static final String EXTENSION = "gz";
 
         private String filename;
         private String compressedFile;
-        public QueueFileTransferRunner(String filename) {
+        private StringBuilder bufferToEmpty = null;
+
+        public FileUploadTask(String filename) {
             this.filename = filename;
             this.compressedFile = filename + "." + EXTENSION;
         }
 
-        public void run() {
+        public void setBufferToEmpty(StringBuilder buffer) {
+            bufferToEmpty = buffer;
+        }
+
+        @Override
+        protected Void doInBackground(Void... params) {
+            if (bufferToEmpty != null) {
+                emptyOutBuffer();
+            }
+
             if (!createCompressedFile()) {
                 Log.i(FILE_TRANSFER_TAG, "Tried to compress the file but failed");
-                return;
+                return null;
             }
 
             byte[] compressedBytes = createByteArrayFromCompressedFile();
             if (compressedBytes == null) {
                 Log.i(FILE_TRANSFER_TAG, "Tried to get compressed bytes but failed");
-                return;
+                return null;
             }
 
             broadcastMessage(compressedBytes);
+            return null;
+        }
+
+        private void emptyOutBuffer() {
+            try {
+                FileOutputStream fileOut = openFileOutput(filename, MODE_APPEND);
+                OutputStreamWriter writer = new OutputStreamWriter(fileOut);
+                writer.write(bufferToEmpty.toString());
+                writer.flush();
+                writer.close();
+                bufferToEmpty = null;
+            } catch (IOException ex) {
+                Log.w(FILE_TRANSFER_TAG, "Failed to empty out buffer contents to file " + filename + ": " + ex.getMessage());
+            }
         }
 
         /**
@@ -409,8 +467,8 @@ public class MainActivity extends Activity implements SensorEventListener,
                     if (result.getStatus().isSuccess()) {
                         Log.i(TAG, "File '" + compressedFile + "' was successfully sent to device.");
 
-                        if (deleteFile(fileToTransfer)) {
-                            Log.i(TAG, "Deleted the last sent file " + fileToTransfer);
+                        if (deleteFile(filename)) {
+                            Log.i(TAG, "Deleted the last sent file " + filename);
                         }
 
                         if (deleteFile(compressedFile)) {
@@ -420,6 +478,8 @@ public class MainActivity extends Activity implements SensorEventListener,
                 }
             });
         }
+
+
     }
 }
 
