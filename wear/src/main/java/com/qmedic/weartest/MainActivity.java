@@ -26,6 +26,7 @@ import com.google.android.gms.wearable.PutDataRequest;
 import com.google.android.gms.wearable.Wearable;
 
 import java.io.ByteArrayOutputStream;
+import java.io.File;
 import java.io.FileInputStream;
 import java.io.FileOutputStream;
 import java.io.IOException;
@@ -41,18 +42,20 @@ public class MainActivity extends Activity implements SensorEventListener,
     private static final String TAG = "QMEDIC_WEAR";
     private static final String SERVICE_CALLED_WEAR = "QMEDIC_DATA_MESSAGE";
     private static final String HEADER_LINE = "HEADER_TIMESTAMP,X,Y,Z\n";
+    private static final String TEMP_FILE_DATE_FORMAT = "yyyy-MM-dd_HH_mm";
     private static final int BUFFER_SIZE = 4096;
-    private static final int EXPIRATION_IN_MS = 5 * 1000; // 60 * 60 * 1000; // 1 hour (1000ms * 60s * 60min)
+    private static final int EXPIRATION_IN_MS = 10 * 1000; // 60 * 60 * 1000; // 1 hour (1000ms * 60s * 60min)
 
     private GoogleApiClient mGoogleApiClient;
     private SensorManager mSensorMgr;
     private Sensor mAccel;
     private TextView mTextView;
+    private long mUptimeMillis;
+
     private StringBuilder buffer = new StringBuilder();
     private String fileToQueueForTransfer = null;
     private OutputStreamWriter currentWriter = null;
     private Date tempFileExpirationDateTime = null;
-    private long mUptimeMillis; // member variable of the activity or service
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -104,20 +107,43 @@ public class MainActivity extends Activity implements SensorEventListener,
         if(mAccel != null) {
             mSensorMgr.unregisterListener(this, mAccel);
         }
+
+        if (mGoogleApiClient == null) return;
+        if (mGoogleApiClient.isConnected()) {
+            mGoogleApiClient.disconnect();
+        }
     }
 
     @Override
-    protected void onStart() {
-        super.onStart();
+    protected void onResume() {
+        super.onResume();
 
-        if (mGoogleApiClient == null) return;
-        if (!mGoogleApiClient.isConnected()) {
+        if(mAccel != null) {
+            mSensorMgr.registerListener(this, mAccel, SensorManager.SENSOR_DELAY_NORMAL);
+        }
+
+        if (mGoogleApiClient != null && !mGoogleApiClient.isConnected()) {
             mGoogleApiClient.connect();
         }
 
         long elapsedRealtime = SystemClock.elapsedRealtime();
         long currentTimeMillis = System.currentTimeMillis();
         mUptimeMillis = currentTimeMillis - elapsedRealtime;
+    }
+
+    @Override
+    protected void onStart() {
+        super.onStart();
+
+        if (mGoogleApiClient != null && !mGoogleApiClient.isConnected()) {
+            mGoogleApiClient.connect();
+        }
+
+        long elapsedRealtime = SystemClock.elapsedRealtime();
+        long currentTimeMillis = System.currentTimeMillis();
+        mUptimeMillis = currentTimeMillis - elapsedRealtime;
+
+        tryUploadAndDeleteOldFiles();
     }
 
     @Override
@@ -128,39 +154,35 @@ public class MainActivity extends Activity implements SensorEventListener,
     @Override
     protected void onDestroy() {
         super.onDestroy();
-
-        if (mGoogleApiClient == null) return;
-        if (mGoogleApiClient.isConnected()) {
-            mGoogleApiClient.disconnect();
-        }
     }
 
     @Override
     public void onSensorChanged(SensorEvent event) {
         String text = null;
-        Date date = null;
-
+        Date date = getDateFromEvent(event);
+        SimpleDateFormat sdf = new SimpleDateFormat("yyyy/MM/dd HH:mm:ss.SSS");
         switch (event.sensor.getType()) {
             case Sensor.TYPE_ACCELEROMETER:
-                date = getDateFromEvent(event);
                 float x = event.values[0];
                 float y = event.values[1];
                 float z = event.values[2];
 
                 DecimalFormat df = new DecimalFormat("###.##");
-                SimpleDateFormat sdf = new SimpleDateFormat("yyyy/MM/dd HH:mm:ss.SSS");
                 text = String.format(
                     "%s, %s, %s, %s\n",
                     sdf.format(date),
                     df.format(x),
                     df.format(y),
                     df.format(z));
+                break;
 
             case Sensor.TYPE_HEART_RATE:
                 // TODO: do some heart rate stuff
+                break;
 
             default:
                 // ignore
+                break;
         }
 
         if (mTextView != null) {
@@ -178,15 +200,14 @@ public class MainActivity extends Activity implements SensorEventListener,
      * @return {Date} - The datetime of the event
      */
     private Date getDateFromEvent(SensorEvent sensorEvent) {
-        //TODO: Time is off by a few days + hours....investigate this a bit more
-        long timeInMillis = ((sensorEvent.timestamp / 1000000) + mUptimeMillis);
+        long timeInMillis = (sensorEvent.timestamp / 1000000) + mUptimeMillis;
         return new Date(timeInMillis);
     }
 
     /**
      * Send the message to be written and potentially queued to device
      * @param date - The datetime of the message
-     * @param msg - The messsage to be sent
+     * @param msg - The message to be sent
      */
     private void writeMessage(final Date date, final String msg) {
         // check if we should send file contents to device
@@ -195,7 +216,7 @@ public class MainActivity extends Activity implements SensorEventListener,
             setExpiration(date);
             closeCurrentWriter();
 
-            FileUploadTask task = new FileUploadTask(fileToQueueForTransfer);
+            FileUploadTask task = new FileUploadTask(mGoogleApiClient, getFilesDir(), fileToQueueForTransfer);
             task.execute();
         }
 
@@ -237,14 +258,13 @@ public class MainActivity extends Activity implements SensorEventListener,
         }
     }
 
-
     /**
      * Get the temp filename for the file being written
      * @param date - The date to associate the filename with
      * @return - The temp filename to write to
      */
     private String getTempFileName(final Date date) {
-        SimpleDateFormat sdf = new SimpleDateFormat("yyyy-MM-dd_HH_mm_ss");
+        SimpleDateFormat sdf = new SimpleDateFormat(TEMP_FILE_DATE_FORMAT);
         Date d = shouldSendFile(date) ? date : tempFileExpirationDateTime;
         return "temp-" + sdf.format(d) + ".csv";
     }
@@ -269,9 +289,9 @@ public class MainActivity extends Activity implements SensorEventListener,
     }
 
     /**
-     * Get's the output stream writer
+     * Gets the output stream writer
      * @param date - The date used for getting the stream writer (Or creating a new one)
-     * @return - The stream writer, or null if a problem occured
+     * @return - The stream writer, or null if a problem occurred
      */
     private OutputStreamWriter getCurrentWriter(final Date date) {
         String tempFileName = getTempFileName(date);
@@ -294,7 +314,6 @@ public class MainActivity extends Activity implements SensorEventListener,
 
         return currentWriter;
     }
-
 
     private OutputStreamWriter openNewWriter(String filename) {
         try {
@@ -328,168 +347,42 @@ public class MainActivity extends Activity implements SensorEventListener,
 
     @Override
     public void onConnected(Bundle bundle) {
-        //TODO: maybe some management stats here?
+        // try to upload (and delete) all files, except for the current temp file
+        tryUploadAndDeleteOldFiles();
+    }
+
+    private void tryUploadAndDeleteOldFiles() {
+        String[] files = fileList();
+        Date d = new Date();
+        String tempFilename = getTempFileName(d);
+        File fileDir = getFilesDir();
+
+        for (int i = 0; i < files.length; i++) {
+            if (tempFilename == files[i]) {
+                continue;
+            }
+
+            new FileUploadTask(mGoogleApiClient, fileDir, files[i]).execute();
+        }
     }
 
     @Override
     public void onConnectionSuspended(int i) {
-        //TODO: maybe some management stats here?
+        // Empty out the buffer to the current file.
+
+        // if a file was in the midst of being sent was interrupted,
+        // ensure that file isn't deleted.
     }
 
     @Override
     public void onConnectionFailed(ConnectionResult connectionResult) {
-        //TODO: maybe some management stats here?
-    }
-
-    /**
-     * Async task used for queuing a file transfer
-     */
-    private class FileUploadTask extends AsyncTask<Void, Void, Void> {
-        private static final int BUFFER_SIZE = 8192;
-        private static final String FILE_TRANSFER_TAG = TAG + " - Runner";
-        private static final String EXTENSION = "gz";
-
-        private String filename;
-        private String compressedFile;
-        private StringBuilder bufferToEmpty = null;
-
-        public FileUploadTask(String filename) {
-            this.filename = filename;
-            this.compressedFile = filename + "." + EXTENSION;
-        }
-
-        public void setBufferToEmpty(StringBuilder buffer) {
-            bufferToEmpty = buffer;
-        }
-
-        @Override
-        protected Void doInBackground(Void... params) {
-            if (bufferToEmpty != null) {
-                emptyOutBuffer();
-            }
-
-            if (!createCompressedFile()) {
-                Log.i(FILE_TRANSFER_TAG, "Tried to compress the file but failed");
-                return null;
-            }
-
-            byte[] compressedBytes = createByteArrayFromCompressedFile();
-            if (compressedBytes == null) {
-                Log.i(FILE_TRANSFER_TAG, "Tried to get compressed bytes but failed");
-                return null;
-            }
-
-            broadcastMessage(compressedBytes);
-            return null;
-        }
-
-        private void emptyOutBuffer() {
-            try {
-                FileOutputStream fileOut = openFileOutput(filename, MODE_APPEND);
-                OutputStreamWriter writer = new OutputStreamWriter(fileOut);
-                writer.write(bufferToEmpty.toString());
-                writer.flush();
-                writer.close();
-                bufferToEmpty = null;
-            } catch (IOException ex) {
-                Log.w(FILE_TRANSFER_TAG, "Failed to empty out buffer contents to file " + filename + ": " + ex.getMessage());
-            }
-        }
-
-        /**
-         * Create a file which contains the raw contents gzipped.
-         * @return True if the compression was successful. False, if otherwise.
-         */
-        private boolean createCompressedFile() {
-            byte[] buffer = new byte[BUFFER_SIZE];
-            int len;
-
-            // Compress file contents
-            try {
-                FileInputStream inStream = openFileInput(filename);
-                GZIPOutputStream outputStream = new GZIPOutputStream(openFileOutput(compressedFile, MODE_APPEND));
-                while ((len = inStream.read(buffer)) > 0) {
-                    outputStream.write(buffer, 0, len);
-                }
-
-                inStream.close();
-                outputStream.finish();
-                outputStream.close();
-            } catch (IOException ex) {
-                Log.w(FILE_TRANSFER_TAG, "Failed to compress file " + filename + ": " + ex.getMessage());
-                return false;
-            }
-
-            return true;
-        }
-
-        /**
-         * Generate a byte array representing the compressed file contents
-         * @return A byte array of the compressed contents. Null if we failed to generate the file.
-         */
-        private byte[] createByteArrayFromCompressedFile() {
-            byte[] buffer = new byte[BUFFER_SIZE];
-            int len;
-            ByteArrayOutputStream out = null;
-
-            try {
-                FileInputStream in = openFileInput(compressedFile);
-                out = new ByteArrayOutputStream();
-                while ((len = in.read(buffer)) > 0) {
-                    out.write(buffer, 0, len);
-                }
-
-                in.close();
-                out.close();
-            } catch (Exception ex) {
-                Log.w(TAG, "Failed to get file output stream for " + compressedFile + ": " + ex.getMessage());
-                return null;
-            }
-
-            return out.toByteArray();
-        }
-
-        /**
-         * Broadcasts the message (in bytes) to those connect to the local google client
-         * @param messageInBytes - The message to be broadcasted in bytes
-         */
-        private void broadcastMessage(byte[] messageInBytes) {
-            Asset asset = Asset.createFromBytes(messageInBytes);
-            String extension = "/" + EXTENSION;
-
-            PutDataMapRequest dataMap = PutDataMapRequest.create(extension);
-            dataMap.getDataMap().putAsset(SERVICE_CALLED_WEAR, asset);
-            PutDataRequest request = dataMap.asPutDataRequest();
-            PendingResult<DataApi.DataItemResult> pendingResult = Wearable.DataApi.putDataItem(mGoogleApiClient, request);
-            pendingResult.setResultCallback(new ResultCallback<DataApi.DataItemResult>() {
-                @Override
-                public void onResult(final DataApi.DataItemResult result) {
-                    if (result.getStatus().isSuccess()) {
-                        Log.i(TAG, "File '" + compressedFile + "' was successfully sent to device.");
-
-                        if (deleteFile(filename)) {
-                            Log.i(TAG, "Deleted the last sent file " + filename);
-                        }
-
-                        if (deleteFile(compressedFile)) {
-                            Log.i(TAG, "Deleted the gzipped last sent file " + compressedFile);
-                        }
-                    }
-                }
-            });
-        }
-
-
+        // can't do anything with a failed connection...maybe do nothing?
     }
 }
 
 /*
     Things to do
-        - Fix issue with event time
-        - Collect heart rate data as well
-        - Regarding the watch sampling rate, there's a property that you can set when you initialize the sensor itself (https://developer.android.com/guide/topics/sensors/sensors_motion.html). I don't remember if it's the same doc for Wear though.
-        - ***Figure out how to get watch/app code to run, even if the screen goes out
         - Can you try recording a video or send over some images/screenshots of the wear+smartphone apps in action?
-        - [WATCH SAMPLING RATE] Regarding the watch sampling rate, there's a property that you can set when you initialize the sensor itself (https://developer.android.com/guide/topics/sensors/sensors_motion.html). I don't remember if it's the same doc for Wear though.
         - Make the necessary checks for managing the connection between the watch and the device
+        - Figure out how to get watch/app code to run, even if the screen goes out
 */
