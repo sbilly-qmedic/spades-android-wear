@@ -38,14 +38,14 @@ public class FileUploadTask extends AsyncTask<Void, Void, Void> {
     private String compressedFile;
     private StringBuilder bufferToEmpty = null;
 
-    public FileUploadTask(GoogleApiClient client, File fileDir, String filename) {
+    public FileUploadTask(final GoogleApiClient client, final File fileDir, final String filename) {
         mGoogleApiClient = client;
 
         this.filename = fileDir.getAbsolutePath() + "/" + filename;
         this.compressedFile = this.filename + ".gz";
     }
 
-    public void setBufferToEmpty(StringBuilder buffer) {
+    public void setBufferToEmpty(final StringBuilder buffer) {
         bufferToEmpty = buffer;
     }
 
@@ -79,6 +79,7 @@ public class FileUploadTask extends AsyncTask<Void, Void, Void> {
 
     private void emptyOutBuffer() {
         try {
+
             File file = new File(filename);
             FileOutputStream out = new FileOutputStream(file, true);
             OutputStreamWriter writer = new OutputStreamWriter(out);
@@ -104,13 +105,10 @@ public class FileUploadTask extends AsyncTask<Void, Void, Void> {
         try {
             File file = new File(filename);
             FileInputStream inStream = new FileInputStream(file);
-            //FileInputStream inStream = openFileInput(filename);
 
             File outFile = new File(compressedFile);
             FileOutputStream outStream = new FileOutputStream(outFile, true);
 
-
-            //GZIPOutputStream outputStream = new GZIPOutputStream(openFileOutput(compressedFile, MODE_APPEND));
             GZIPOutputStream outputStream = new GZIPOutputStream(outStream);
             while ((len = inStream.read(buffer)) > 0) {
                 outputStream.write(buffer, 0, len);
@@ -134,10 +132,10 @@ public class FileUploadTask extends AsyncTask<Void, Void, Void> {
     private byte[] createByteArrayFromCompressedFile() {
         byte[] buffer = new byte[BUFFER_SIZE];
         int len;
-        ByteArrayOutputStream out = null;
+        ByteArrayOutputStream out;
 
         try {
-            FileInputStream in = openInputStream(compressedFile);
+            FileInputStream in = new FileInputStream(compressedFile);
             out = new ByteArrayOutputStream();
             while ((len = in.read(buffer)) > 0) {
                 out.write(buffer, 0, len);
@@ -157,7 +155,7 @@ public class FileUploadTask extends AsyncTask<Void, Void, Void> {
      * Broadcasts the message (in bytes) to those connect to the local google client
      * @param messageInBytes - The message to be broadcasted in bytes
      */
-    private void broadcastMessage(byte[] messageInBytes) {
+    private void broadcastMessage(final byte[] messageInBytes) {
         Asset asset = Asset.createFromBytes(messageInBytes);
         String extension = "/" + EXTENSION;
 
@@ -183,30 +181,7 @@ public class FileUploadTask extends AsyncTask<Void, Void, Void> {
         });
     }
 
-    private FileInputStream openInputStream(String filename) {
-        File file = new File(filename);
-        if (!file.exists()) return null;
-
-        try {
-            return new FileInputStream(file);
-        } catch (IOException ex) {
-            Log.w(FILE_TRANSFER_TAG, "Failed to read file: " + ex.getMessage());
-        }
-
-        return null;
-    }
-
-    private FileOutputStream openOutStream(String filename) {
-        File file = new File(filename);
-        try {
-            return new FileOutputStream(file, true);
-        } catch (IOException ex) {
-            Log.w(FILE_TRANSFER_TAG, "Failed to open file: " + ex.getMessage());
-        }
-        return null;
-    }
-
-    private boolean deleteFile(String filename) {
+    private boolean deleteFile(final String filename) {
         File file = new File(filename);
         if (!file.exists()) return false;
 

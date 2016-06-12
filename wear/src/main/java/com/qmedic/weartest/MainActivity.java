@@ -261,6 +261,7 @@ public class MainActivity extends Activity implements SensorEventListener {
     private String getTempFileName(final Date date) {
         SimpleDateFormat sdf = new SimpleDateFormat(TEMP_FILE_DATE_FORMAT);
         Date d = shouldSendFile(date) ? date : tempFileExpirationDateTime;
+        d = clampDate(d);
         return "temp-" + sdf.format(d) + ".csv";
     }
 
@@ -338,7 +339,7 @@ public class MainActivity extends Activity implements SensorEventListener {
      * @param filename - The name of the file to open
      * @return - An Output stream used for writing into
      */
-    private OutputStreamWriter openNewWriter(String filename) {
+    private OutputStreamWriter openNewWriter(final String filename) {
         try {
             FileOutputStream outStream = openFileOutput(filename, MODE_APPEND);
             return new OutputStreamWriter(outStream);
@@ -386,7 +387,7 @@ public class MainActivity extends Activity implements SensorEventListener {
      * @param sensorEvent - The sensor event containing the timestamp
      * @return {Date} - The datetime of the event
      */
-    private Date getDateFromEvent(SensorEvent sensorEvent) {
+    private Date getDateFromEvent(final SensorEvent sensorEvent) {
         long timeInMillis = (sensorEvent.timestamp / 1000000) + timestampOffsetMS;
         return new Date(timeInMillis);
     }
