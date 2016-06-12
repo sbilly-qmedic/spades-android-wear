@@ -10,6 +10,7 @@ import android.os.Bundle;
 import android.os.RemoteException;
 import android.support.v4.content.LocalBroadcastManager;
 import android.support.wearable.view.WatchViewStub;
+import android.text.method.ScrollingMovementMethod;
 import android.util.Log;
 import android.widget.TextView;
 
@@ -53,6 +54,7 @@ public class MainActivity extends Activity implements
             @Override
             public void onLayoutInflated(WatchViewStub stub) {
                 mTextView = (TextView) stub.findViewById(R.id.text);
+                mTextView.setMovementMethod(new ScrollingMovementMethod());
             }
         });
 
