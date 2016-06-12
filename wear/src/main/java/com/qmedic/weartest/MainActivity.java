@@ -6,7 +6,6 @@ import android.hardware.Sensor;
 import android.hardware.SensorEvent;
 import android.hardware.SensorEventListener;
 import android.hardware.SensorManager;
-import android.os.AsyncTask;
 import android.os.Bundle;
 import android.os.SystemClock;
 import android.support.wearable.view.WatchViewStub;
@@ -17,34 +16,25 @@ import android.widget.TextView;
 import com.google.android.gms.common.ConnectionResult;
 import com.google.android.gms.common.api.GoogleApiClient;
 
-import com.google.android.gms.common.api.PendingResult;
-import com.google.android.gms.common.api.ResultCallback;
-import com.google.android.gms.wearable.Asset;
-import com.google.android.gms.wearable.DataApi;
-import com.google.android.gms.wearable.PutDataMapRequest;
-import com.google.android.gms.wearable.PutDataRequest;
 import com.google.android.gms.wearable.Wearable;
 
-import java.io.ByteArrayOutputStream;
 import java.io.File;
-import java.io.FileInputStream;
 import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.OutputStreamWriter;
 import java.text.DecimalFormat;
 import java.text.SimpleDateFormat;
+import java.util.Calendar;
 import java.util.Date;
-import java.util.zip.GZIPOutputStream;
 
 public class MainActivity extends Activity implements SensorEventListener,
         GoogleApiClient.ConnectionCallbacks, GoogleApiClient.OnConnectionFailedListener {
 
     private static final String TAG = "QMEDIC_WEAR";
-    private static final String SERVICE_CALLED_WEAR = "QMEDIC_DATA_MESSAGE";
     private static final String HEADER_LINE = "HEADER_TIMESTAMP,X,Y,Z\n";
     private static final String TEMP_FILE_DATE_FORMAT = "yyyy-MM-dd_HH_mm";
     private static final int BUFFER_SIZE = 4096;
-    private static final int EXPIRATION_IN_MS = 10 * 1000; // 60 * 60 * 1000; // 1 hour (1000ms * 60s * 60min)
+    private static final int FILE_LIFETIME_IN_SECONDS = 10;
 
     private GoogleApiClient mGoogleApiClient;
     private SensorManager mSensorMgr;
@@ -80,11 +70,18 @@ public class MainActivity extends Activity implements SensorEventListener,
                 @Override
                 public void onConnected(Bundle connectionHint) {
                     Log.d(TAG, "onConnected: " + connectionHint);
+
+                    // we've successfully connected to the device...let's
+                    // try and upload any 'old' files we have here.
+                    tryUploadAndDeleteOldFiles();
                 }
 
                 @Override
                 public void onConnectionSuspended(int cause) {
                     Log.d(TAG, "onConnectionSuspended: " + cause);
+
+                    String filename = getTempFileName(new Date());
+                    flushBufferToFile(filename);
                 }
             })
             .addOnConnectionFailedListener(new GoogleApiClient.OnConnectionFailedListener() {
@@ -177,7 +174,7 @@ public class MainActivity extends Activity implements SensorEventListener,
                 break;
 
             case Sensor.TYPE_HEART_RATE:
-                // TODO: do some heart rate stuff
+                // TODO Later: do some heart rate stuff
                 break;
 
             default:
@@ -210,6 +207,8 @@ public class MainActivity extends Activity implements SensorEventListener,
      * @param msg - The message to be sent
      */
     private void writeMessage(final Date date, final String msg) {
+        //TODO: Maybe the buffer smarter such that dumped data only goes for the correct corresponding hour.
+
         // check if we should send file contents to device
         if (shouldSendFile(date)) {
             flushBufferToFile(fileToQueueForTransfer);
@@ -246,15 +245,15 @@ public class MainActivity extends Activity implements SensorEventListener,
         StringBuilder buffer = getBuffer();
         if (buffer.length() == 0) return;
 
-        if (fileToQueueForTransfer == null) return;
-        OutputStreamWriter writer = openNewWriter(fileToQueueForTransfer);
+        if (filename == null) return;
+        OutputStreamWriter writer = openNewWriter(filename);
         if (writer == null) return;
 
         try {
             writer.write(buffer.toString());
             buffer.setLength(0);
         } catch (IOException ex) {
-            Log.w(TAG, "Failed to empty out buffer contents to file " + fileToQueueForTransfer + ": " + ex.getMessage());
+            Log.w(TAG, "Failed to empty out buffer contents to file " + filename + ": " + ex.getMessage());
         }
     }
 
@@ -274,8 +273,19 @@ public class MainActivity extends Activity implements SensorEventListener,
      * @param date - The date used in relation to setting the expiration date
      */
     private void setExpiration(final Date date) {
-        tempFileExpirationDateTime = date;
-        tempFileExpirationDateTime.setTime(tempFileExpirationDateTime.getTime() + EXPIRATION_IN_MS);
+        Calendar c = Calendar.getInstance();
+        c.setTime(date);
+
+        // clamp time
+        c.set(Calendar.MILLISECOND, 0);
+        c.set(Calendar.SECOND, 0);
+        //c.set(Calendar.MINUTE, 0);
+
+        // set to next expiration time
+        c.add(Calendar.MINUTE, 1);
+        //c.add(Calendar.HOUR_OF_DAY, 1);
+
+        tempFileExpirationDateTime = c.getTime();
     }
 
     /**
@@ -367,22 +377,24 @@ public class MainActivity extends Activity implements SensorEventListener,
     }
 
     @Override
+    /**
+     * This method is called when disconnected from Google Play Services
+     */
     public void onConnectionSuspended(int i) {
-        // Empty out the buffer to the current file.
-
-        // if a file was in the midst of being sent was interrupted,
-        // ensure that file isn't deleted.
+        // nothing
     }
 
     @Override
+    /**
+     * This method is called when there is failure to reconnect to Google Play services
+     */
     public void onConnectionFailed(ConnectionResult connectionResult) {
-        // can't do anything with a failed connection...maybe do nothing?
+        // nothing
     }
 }
 
 /*
     Things to do
-        - Can you try recording a video or send over some images/screenshots of the wear+smartphone apps in action?
         - Make the necessary checks for managing the connection between the watch and the device
         - Figure out how to get watch/app code to run, even if the screen goes out
 */
