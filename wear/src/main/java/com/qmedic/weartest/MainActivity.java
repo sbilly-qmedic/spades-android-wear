@@ -156,7 +156,6 @@ public class MainActivity extends Activity implements SensorEventListener {
 
     @Override
     public void onAccuracyChanged(Sensor sensor, int accuracy) {
-
     }
 
     @Override
@@ -172,11 +171,11 @@ public class MainActivity extends Activity implements SensorEventListener {
 
                 DecimalFormat df = new DecimalFormat("###.##");
                 text = String.format(
-                        "%s, %s, %s, %s\n",
-                        sdf.format(date),
-                        df.format(x),
-                        df.format(y),
-                        df.format(z));
+                    "%s, %s, %s, %s\n",
+                    sdf.format(date),
+                    df.format(x),
+                    df.format(y),
+                    df.format(z));
                 break;
 
             case Sensor.TYPE_HEART_RATE:
@@ -252,26 +251,6 @@ public class MainActivity extends Activity implements SensorEventListener {
     private void resetBuffer()
     {
         buffer = null;
-    }
-
-    /**
-     * Empty call contents of the buffer to the specified file
-     * @param filename - The file to empty the buffer contents into
-     */
-    private void flushBufferToFile(String filename) {
-        StringBuilder buffer = getBuffer();
-        if (buffer.length() == 0) return;
-
-        if (filename == null) return;
-        OutputStreamWriter writer = openNewWriter(filename);
-        if (writer == null) return;
-
-        try {
-            writer.write(buffer.toString());
-            buffer.setLength(0);
-        } catch (IOException ex) {
-            Log.w(TAG, "Failed to empty out buffer contents to file " + filename + ": " + ex.getMessage());
-        }
     }
 
     /**
