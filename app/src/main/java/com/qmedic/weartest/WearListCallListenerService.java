@@ -1,30 +1,21 @@
 package com.qmedic.weartest;
 
 import android.content.Intent;
-import android.content.res.AssetManager;
 import android.net.Uri;
 
-import android.os.AsyncTask;
-import android.os.Bundle;
 import android.support.v4.content.LocalBroadcastManager;
 import android.util.Log;
 
 import com.google.android.gms.common.api.GoogleApiClient;
 import com.google.android.gms.common.data.FreezableUtils;
 import com.google.android.gms.wearable.Asset;
-import com.google.android.gms.wearable.CapabilityInfo;
-import com.google.android.gms.wearable.Channel;
 import com.google.android.gms.wearable.DataEvent;
 import com.google.android.gms.wearable.DataEventBuffer;
-import com.google.android.gms.wearable.DataItem;
 import com.google.android.gms.wearable.DataMap;
 import com.google.android.gms.wearable.DataMapItem;
-import com.google.android.gms.wearable.MessageEvent;
-import com.google.android.gms.wearable.Node;
 import com.google.android.gms.wearable.Wearable;
 import com.google.android.gms.wearable.WearableListenerService;
 
-import java.io.BufferedInputStream;
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
@@ -35,9 +26,12 @@ import java.util.List;
 import java.util.zip.GZIPInputStream;
 
 public class WearListCallListenerService extends WearableListenerService {
+    // intent filter must be the same as the app to broadcast these events
+    private static final String INTENT_FILTER = "SPADES_INTENT_FILTER";
+
     public static String SERVICE_CALLED_WEAR = "QMEDIC_DATA_MESSAGE";
     public static String SERVICE_ACTION = "QMEDIC_DATA_ENTRY";
-    private static final String INTENT_FILTER = "SPADES_INTENT_FILTER";
+
     private static final String TAG = "QMEDIC_APP_SERVICE";
 
     private GoogleApiClient mGoogleApiClient;
@@ -45,56 +39,6 @@ public class WearListCallListenerService extends WearableListenerService {
     public WearListCallListenerService() {
         super();
     }
-
-    @Override
-    public void onMessageReceived(MessageEvent messageEvent) {
-        super.onMessageReceived(messageEvent);
-
-        String event = messageEvent.getPath();
-        Log.d(TAG, "Got message: " + event);
-    }
-
-    @Override
-    public void onPeerConnected(Node peer) {
-        super.onPeerConnected(peer);
-    }
-
-    @Override
-    public void onPeerDisconnected(Node peer) {
-        super.onPeerDisconnected(peer);
-    }
-
-    @Override
-    public void onConnectedNodes(List<Node> connectedNodes) {
-        super.onConnectedNodes(connectedNodes);
-    }
-
-    @Override
-    public void onCapabilityChanged(CapabilityInfo capabilityInfo) {
-        super.onCapabilityChanged(capabilityInfo);
-    }
-
-    @Override
-    public void onChannelOpened(Channel channel) {
-        super.onChannelOpened(channel);
-    }
-
-    @Override
-    public void onChannelClosed(Channel channel, int closeReason, int appSpecificErrorCode) {
-        super.onChannelClosed(channel, closeReason, appSpecificErrorCode);
-    }
-
-    @Override
-    public void onInputClosed(Channel channel, int closeReason, int appSpecificErrorCode) {
-        super.onInputClosed(channel, closeReason, appSpecificErrorCode);
-    }
-
-    @Override
-    public void onOutputClosed(Channel channel, int closeReason, int appSpecificErrorCode) {
-        super.onOutputClosed(channel, closeReason, appSpecificErrorCode);
-    }
-
-
 
     @Override
     public void onCreate() {
@@ -128,6 +72,8 @@ public class WearListCallListenerService extends WearableListenerService {
 
     @Override
     public void onDataChanged(DataEventBuffer dataEvents) {
+        super.onDataChanged(dataEvents);
+
         // Need to freeze the dataEvents so they will exist later on the UI thread
         final List<DataEvent> events = FreezableUtils.freezeIterable(dataEvents);
         for (DataEvent event : events) {
@@ -136,7 +82,6 @@ public class WearListCallListenerService extends WearableListenerService {
                 final DataMap map = DataMapItem.fromDataItem(event.getDataItem()).getDataMap();
 
                 // collect data from watch, and pass to main activity
-                // TODO: Maybe just do work here in the service?
                 if (map.containsKey(SERVICE_CALLED_WEAR)) {
                     Asset asset = map.getAsset(SERVICE_CALLED_WEAR);
                     if (asset == null) continue;
@@ -189,6 +134,5 @@ public class WearListCallListenerService extends WearableListenerService {
                 }
             }
         }
-        //super.onDataChanged(dataEvents);
     }
 }
