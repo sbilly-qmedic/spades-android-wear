@@ -211,7 +211,7 @@ public class MainActivity extends Activity implements SensorEventListener {
 
             FileUploadTask task = new FileUploadTask(mGoogleApiClient, getFilesDir(), fileToQueueForTransfer);
             task.setBufferToEmpty(getBuffer());
-            buffer = null;
+            resetBuffer();
             task.execute();
         }
 
@@ -290,18 +290,30 @@ public class MainActivity extends Activity implements SensorEventListener {
      * @param date - The date used in relation to setting the expiration date
      */
     private void setExpiration(final Date date) {
+        Date clampedDate = clampDate(date);
+        Calendar c = Calendar.getInstance();
+        c.setTime(clampedDate);
+
+        // set to next expiration time
+        c.add(Calendar.HOUR_OF_DAY, FILE_LIFETIME_IN_HR);
+
+        tempFileExpirationDateTime = c.getTime();
+    }
+
+    /**
+     * Clamp the date to the top of the hour
+     * @param date - The date to adjust
+     * @return - The Date, shifted to the top of the hour
+     */
+    private Date clampDate(final Date date) {
         Calendar c = Calendar.getInstance();
         c.setTime(date);
 
-        // clamp time
         c.set(Calendar.MILLISECOND, 0);
         c.set(Calendar.SECOND, 0);
-        //c.set(Calendar.MINUTE, 0);
+        c.set(Calendar.MINUTE, 0);
 
-        // set to next expiration time
-        c.add(Calendar.MINUTE, FILE_LIFETIME_IN_HR);
-
-        tempFileExpirationDateTime = c.getTime();
+        return c.getTime();
     }
 
     /**
@@ -311,7 +323,8 @@ public class MainActivity extends Activity implements SensorEventListener {
      */
     private boolean shouldSendFile(final Date date) {
         if (tempFileExpirationDateTime == null) setExpiration(date);
-        return date.compareTo(tempFileExpirationDateTime) > 0;
+        Date clampedDate = clampDate(date);
+        return clampedDate.compareTo(tempFileExpirationDateTime) > 0;
     }
 
     /**
