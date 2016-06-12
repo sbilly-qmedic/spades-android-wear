@@ -51,7 +51,7 @@ public class FileUploadTask extends AsyncTask<Void, Void, Void> {
 
     @Override
     protected Void doInBackground(Void... params) {
-        //if (!checkIfFileExists()) return null;
+        if (!checkIfFileExists()) return null;
 
         if (bufferToEmpty != null) {
             emptyOutBuffer();
@@ -80,7 +80,7 @@ public class FileUploadTask extends AsyncTask<Void, Void, Void> {
     private void emptyOutBuffer() {
         try {
             File file = new File(filename);
-            FileOutputStream out = new FileOutputStream(file);
+            FileOutputStream out = new FileOutputStream(file, true);
             OutputStreamWriter writer = new OutputStreamWriter(out);
 
             writer.write(bufferToEmpty.toString());

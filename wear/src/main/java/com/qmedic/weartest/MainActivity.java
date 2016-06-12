@@ -27,20 +27,19 @@ import java.text.SimpleDateFormat;
 import java.util.Calendar;
 import java.util.Date;
 
-public class MainActivity extends Activity implements SensorEventListener,
-        GoogleApiClient.ConnectionCallbacks, GoogleApiClient.OnConnectionFailedListener {
+public class MainActivity extends Activity implements SensorEventListener {
 
     private static final String TAG = "QMEDIC_WEAR";
     private static final String HEADER_LINE = "HEADER_TIMESTAMP,X,Y,Z\n";
     private static final String TEMP_FILE_DATE_FORMAT = "yyyy-MM-dd_HH_mm";
     private static final int BUFFER_SIZE = 4096;
-    private static final int FILE_LIFETIME_IN_SECONDS = 10;
+    private static final int FILE_LIFETIME_IN_HR = 1;
 
     private GoogleApiClient mGoogleApiClient;
     private SensorManager mSensorMgr;
     private Sensor mAccel;
     private TextView mTextView;
-    private long mUptimeMillis;
+    private long timestampOffsetMS;
 
     private StringBuilder buffer = new StringBuilder();
     private String fileToQueueForTransfer = null;
@@ -61,47 +60,64 @@ public class MainActivity extends Activity implements SensorEventListener,
 
         mSensorMgr = (SensorManager) getSystemService(Context.SENSOR_SERVICE);
         mAccel = mSensorMgr.getDefaultSensor(Sensor.TYPE_ACCELEROMETER);
-        if(mAccel != null) {
+        if (mAccel != null) {
             mSensorMgr.registerListener(this, mAccel, SensorManager.SENSOR_DELAY_NORMAL);
         }
 
-        mGoogleApiClient = new GoogleApiClient.Builder(this)
-            .addConnectionCallbacks(new GoogleApiClient.ConnectionCallbacks() {
-                @Override
-                public void onConnected(Bundle connectionHint) {
-                    Log.d(TAG, "onConnected: " + connectionHint);
+        // instantiate the google client used for communication with Google APIs
+        mGoogleApiClient = new GoogleApiClient
+                .Builder(this)
+                .addConnectionCallbacks(new GoogleApiClient.ConnectionCallbacks() {
+                    @Override
+                    public void onConnected(Bundle connectionHint) {
+                        Log.d(TAG, "onConnected: " + connectionHint);
 
-                    // we've successfully connected to the device...let's
-                    // try and upload any 'old' files we have here.
-                    tryUploadAndDeleteOldFiles();
-                }
+                        // we've successfully connected to the device
+                        // let's try and upload any 'old' files we have here.
+                        tryUploadAndDeleteOldFiles();
+                    }
 
-                @Override
-                public void onConnectionSuspended(int cause) {
-                    Log.d(TAG, "onConnectionSuspended: " + cause);
-
-                    String filename = getTempFileName(new Date());
-                    flushBufferToFile(filename);
-                }
-            })
-            .addOnConnectionFailedListener(new GoogleApiClient.OnConnectionFailedListener() {
-                @Override
-                public void onConnectionFailed(ConnectionResult result) {
-                    Log.d(TAG, "onConnectionFailed: " + result);
-                }
-            })
-            .addApi(Wearable.API)
-            .build();
+                    @Override
+                    public void onConnectionSuspended(int cause) {
+                        // somehow our connection was interrupted...can't upload anything
+                        // but can still continue doing our operations
+                        Log.d(TAG, "onConnectionSuspended: " + cause);
+                    }
+                })
+                .addOnConnectionFailedListener(new GoogleApiClient.OnConnectionFailedListener() {
+                    @Override
+                    public void onConnectionFailed(ConnectionResult result) {
+                        // we failed to connect to the google API....can't upload anything
+                        // but can still continue doing our operations
+                        Log.d(TAG, "onConnectionFailed: " + result);
+                    }
+                })
+                .addApi(Wearable.API)
+                .build();
 
         // keep screen on (debug only)
         getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
     }
 
     @Override
+    protected void onStart() {
+        super.onStart();
+
+        if (mGoogleApiClient != null && !mGoogleApiClient.isConnected()) {
+            mGoogleApiClient.connect();
+        }
+
+        // calculate the offset used in getting the normalized timestamp
+        long elapsedRealtime = SystemClock.elapsedRealtime();
+        long currentTimeMillis = System.currentTimeMillis();
+        timestampOffsetMS = currentTimeMillis - elapsedRealtime;
+    }
+
+    @Override
     protected void onPause() {
         super.onPause();
 
-        if(mAccel != null) {
+        if (mAccel != null) {
             mSensorMgr.unregisterListener(this, mAccel);
         }
 
@@ -115,7 +131,7 @@ public class MainActivity extends Activity implements SensorEventListener,
     protected void onResume() {
         super.onResume();
 
-        if(mAccel != null) {
+        if (mAccel != null) {
             mSensorMgr.registerListener(this, mAccel, SensorManager.SENSOR_DELAY_NORMAL);
         }
 
@@ -125,22 +141,7 @@ public class MainActivity extends Activity implements SensorEventListener,
 
         long elapsedRealtime = SystemClock.elapsedRealtime();
         long currentTimeMillis = System.currentTimeMillis();
-        mUptimeMillis = currentTimeMillis - elapsedRealtime;
-    }
-
-    @Override
-    protected void onStart() {
-        super.onStart();
-
-        if (mGoogleApiClient != null && !mGoogleApiClient.isConnected()) {
-            mGoogleApiClient.connect();
-        }
-
-        long elapsedRealtime = SystemClock.elapsedRealtime();
-        long currentTimeMillis = System.currentTimeMillis();
-        mUptimeMillis = currentTimeMillis - elapsedRealtime;
-
-        tryUploadAndDeleteOldFiles();
+        timestampOffsetMS = currentTimeMillis - elapsedRealtime;
     }
 
     @Override
@@ -151,6 +152,11 @@ public class MainActivity extends Activity implements SensorEventListener,
     @Override
     protected void onDestroy() {
         super.onDestroy();
+    }
+
+    @Override
+    public void onAccuracyChanged(Sensor sensor, int accuracy) {
+
     }
 
     @Override
@@ -166,11 +172,11 @@ public class MainActivity extends Activity implements SensorEventListener,
 
                 DecimalFormat df = new DecimalFormat("###.##");
                 text = String.format(
-                    "%s, %s, %s, %s\n",
-                    sdf.format(date),
-                    df.format(x),
-                    df.format(y),
-                    df.format(z));
+                        "%s, %s, %s, %s\n",
+                        sdf.format(date),
+                        df.format(x),
+                        df.format(y),
+                        df.format(z));
                 break;
 
             case Sensor.TYPE_HEART_RATE:
@@ -192,37 +198,31 @@ public class MainActivity extends Activity implements SensorEventListener,
     }
 
     /**
-     * Gets the datetime from the event timestamp. (Credit: http://stackoverflow.com/a/9333605)
-     * @param sensorEvent - The sensor event containing the timestamp
-     * @return {Date} - The datetime of the event
-     */
-    private Date getDateFromEvent(SensorEvent sensorEvent) {
-        long timeInMillis = (sensorEvent.timestamp / 1000000) + mUptimeMillis;
-        return new Date(timeInMillis);
-    }
-
-    /**
      * Send the message to be written and potentially queued to device
+     *
      * @param date - The datetime of the message
-     * @param msg - The message to be sent
+     * @param msg  - The message to be sent
      */
     private void writeMessage(final Date date, final String msg) {
-        //TODO: Maybe the buffer smarter such that dumped data only goes for the correct corresponding hour.
-
         // check if we should send file contents to device
         if (shouldSendFile(date)) {
-            flushBufferToFile(fileToQueueForTransfer);
             setExpiration(date);
             closeCurrentWriter();
 
             FileUploadTask task = new FileUploadTask(mGoogleApiClient, getFilesDir(), fileToQueueForTransfer);
+            task.setBufferToEmpty(getBuffer());
+            buffer = null;
             task.execute();
         }
 
+        // write out to the buffer
         StringBuilder buffer = getBuffer();
         buffer.append(msg);
+
+        // check if the buffer is full
         if (buffer.length() >= BUFFER_SIZE) {
             try {
+                // dump buffer contents and clear for next pass
                 OutputStreamWriter writer = getCurrentWriter(date);
                 if (writer != null) {
                     writer.write(buffer.toString());
@@ -234,13 +234,30 @@ public class MainActivity extends Activity implements SensorEventListener,
         }
     }
 
-    public StringBuilder getBuffer() {
+    /**
+     * Get the current buffer instance
+     *
+     * @return An instance of the buffer
+     */
+    private StringBuilder getBuffer() {
         if (buffer == null) {
             buffer = new StringBuilder();
         }
         return buffer;
     }
 
+    /**
+     * Clears out the current buffer
+     */
+    private void resetBuffer()
+    {
+        buffer = null;
+    }
+
+    /**
+     * Empty call contents of the buffer to the specified file
+     * @param filename - The file to empty the buffer contents into
+     */
     private void flushBufferToFile(String filename) {
         StringBuilder buffer = getBuffer();
         if (buffer.length() == 0) return;
@@ -282,8 +299,7 @@ public class MainActivity extends Activity implements SensorEventListener,
         //c.set(Calendar.MINUTE, 0);
 
         // set to next expiration time
-        c.add(Calendar.MINUTE, 1);
-        //c.add(Calendar.HOUR_OF_DAY, 1);
+        c.add(Calendar.MINUTE, FILE_LIFETIME_IN_HR);
 
         tempFileExpirationDateTime = c.getTime();
     }
@@ -325,6 +341,11 @@ public class MainActivity extends Activity implements SensorEventListener,
         return currentWriter;
     }
 
+    /**
+     * Open an instance of an output stream to write into
+     * @param filename - The name of the file to open
+     * @return - An Output stream used for writing into
+     */
     private OutputStreamWriter openNewWriter(String filename) {
         try {
             FileOutputStream outStream = openFileOutput(filename, MODE_APPEND);
@@ -350,17 +371,9 @@ public class MainActivity extends Activity implements SensorEventListener,
         }
     }
 
-    @Override
-    public void onAccuracyChanged(Sensor sensor, int accuracy) {
-
-    }
-
-    @Override
-    public void onConnected(Bundle bundle) {
-        // try to upload (and delete) all files, except for the current temp file
-        tryUploadAndDeleteOldFiles();
-    }
-
+    /**
+     * Try to upload (and delete) all older files currently stored within the app
+     */
     private void tryUploadAndDeleteOldFiles() {
         String[] files = fileList();
         Date d = new Date();
@@ -376,25 +389,13 @@ public class MainActivity extends Activity implements SensorEventListener,
         }
     }
 
-    @Override
     /**
-     * This method is called when disconnected from Google Play Services
+     * Gets the datetime from the event timestamp. (Credit: http://stackoverflow.com/a/9333605)
+     * @param sensorEvent - The sensor event containing the timestamp
+     * @return {Date} - The datetime of the event
      */
-    public void onConnectionSuspended(int i) {
-        // nothing
-    }
-
-    @Override
-    /**
-     * This method is called when there is failure to reconnect to Google Play services
-     */
-    public void onConnectionFailed(ConnectionResult connectionResult) {
-        // nothing
+    private Date getDateFromEvent(SensorEvent sensorEvent) {
+        long timeInMillis = (sensorEvent.timestamp / 1000000) + timestampOffsetMS;
+        return new Date(timeInMillis);
     }
 }
-
-/*
-    Things to do
-        - Make the necessary checks for managing the connection between the watch and the device
-        - Figure out how to get watch/app code to run, even if the screen goes out
-*/
