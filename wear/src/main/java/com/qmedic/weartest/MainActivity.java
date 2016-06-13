@@ -30,7 +30,7 @@ import java.util.Date;
 public class MainActivity extends Activity implements SensorEventListener {
 
     private static final String TAG = "QMEDIC_WEAR";
-    private static final String HEADER_LINE = "HEADER_TIMESTAMP,X,Y,Z\n";
+    private static final String ACCEL_HEADER_LINE = "HEADER_TIMESTAMP,ACCELERATION_X,ACCELERATION_Y,ACCELERATION_Z\n";
     private static final String TEMP_FILE_DATE_FORMAT = "yyyy-MM-dd_HH_mm";
     private static final int BUFFER_SIZE = 4096;
     private static final int FILE_LIFETIME_IN_HR = 1;
@@ -103,7 +103,7 @@ public class MainActivity extends Activity implements SensorEventListener {
     protected void onStart() {
         super.onStart();
 
-        if (mGoogleApiClient != null && !mGoogleApiClient.isConnected()) {
+        if (mGoogleApiClient != null) {
             mGoogleApiClient.connect();
         }
 
@@ -303,8 +303,7 @@ public class MainActivity extends Activity implements SensorEventListener {
      */
     private boolean shouldSendFile(final Date date) {
         if (tempFileExpirationDateTime == null) setExpiration(date);
-        Date clampedDate = clampDate(date);
-        return clampedDate.compareTo(tempFileExpirationDateTime) > 0;
+        return date.compareTo(tempFileExpirationDateTime) > 0;
     }
 
     /**
@@ -324,7 +323,7 @@ public class MainActivity extends Activity implements SensorEventListener {
                 OutputStreamWriter writer = openNewWriter(tempFileName);
                 if (writer == null) return null;
 
-                writer.write(HEADER_LINE);
+                writer.write(ACCEL_HEADER_LINE);
                 currentWriter = writer;
             } catch (IOException ex) {
                 Log.e(TAG, ex.getMessage());
