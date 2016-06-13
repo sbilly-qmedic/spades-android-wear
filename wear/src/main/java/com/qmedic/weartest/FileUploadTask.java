@@ -74,7 +74,7 @@ public class FileUploadTask extends AsyncTask<Void, Void, Void> {
 
     private boolean checkIfFileExists() {
         File file = new File(filename);
-        return file.exists();
+        return file.exists() && !file.isDirectory();
     }
 
     private void emptyOutBuffer() {
