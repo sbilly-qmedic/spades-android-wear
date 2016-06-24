@@ -1,14 +1,15 @@
 package com.qmedic.weartest;
 
 import android.app.Activity;
+import android.content.BroadcastReceiver;
 import android.content.Context;
-import android.hardware.Sensor;
-import android.hardware.SensorEvent;
-import android.hardware.SensorEventListener;
-import android.hardware.SensorManager;
+import android.content.Intent;
+import android.content.IntentFilter;
 import android.os.Bundle;
 import android.os.RemoteException;
+import android.support.v4.content.LocalBroadcastManager;
 import android.support.wearable.view.WatchViewStub;
+import android.text.method.ScrollingMovementMethod;
 import android.util.Log;
 import android.widget.TextView;
 
@@ -16,21 +17,33 @@ import com.estimote.sdk.Beacon;
 import com.estimote.sdk.BeaconManager;
 import com.estimote.sdk.Region;
 
-import java.text.DecimalFormat;
 import java.util.List;
 
-public class MainActivity extends Activity implements SensorEventListener {
+public class MainActivity extends Activity {
+    // intent filter must be the same as the service to capture these events
+    private static final String INTENT_FILTER = "SPADES_INTENT_FILTER";
 
-    private static final String TAG = "WEAR TEST";
+    // The log tag used when recording messages
+    private static final String TAG = "SPADES_APP";
 
     private static final String ESTIMOTE_PROXIMITY_UUID = "B9407F30-F5F8-466E-AFF9-25556B57FE6D";
     private static final Region ALL_ESTIMOTE_BEACONS = new Region("regionId", ESTIMOTE_PROXIMITY_UUID, null, null);
 
+    // A text label used to show data on the screen
     private TextView mTextView;
-    private SensorManager mSensorMgr;
-    private Sensor mAccel;
 
     private BeaconManager mBeaconManager = null;
+
+    // A receiver used to define how we process registered service events
+    private BroadcastReceiver localReceiver = new BroadcastReceiver() {
+        @Override
+        public void onReceive(Context context, Intent intent) {
+            String msg = intent.getStringExtra(WearListCallListenerService.SERVICE_ACTION);
+            if (mTextView != null) {
+                mTextView.setText(msg);
+            }
+        }
+    };
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -41,37 +54,34 @@ public class MainActivity extends Activity implements SensorEventListener {
             @Override
             public void onLayoutInflated(WatchViewStub stub) {
                 mTextView = (TextView) stub.findViewById(R.id.text);
+                mTextView.setMovementMethod(new ScrollingMovementMethod());
             }
         });
-
-        // Set up accelerometer sensor
-        mSensorMgr = (SensorManager) getSystemService(Context.SENSOR_SERVICE);
-        mAccel = mSensorMgr.getDefaultSensor(Sensor.TYPE_ACCELEROMETER);
-        if(mAccel != null) {
-            mSensorMgr.registerListener(this, mAccel, SensorManager.SENSOR_DELAY_NORMAL);
-        }
 
         // Set up estimote
         mBeaconManager = new BeaconManager(this.getApplicationContext());
         mBeaconManager.setRangingListener(new BeaconManager.RangingListener() {
             @Override
             public void onBeaconsDiscovered(Region region, List<Beacon> beacons) {
-                Log.d(TAG, "Beacons: "+beacons);
+                Log.d(TAG, "Beacons: " + beacons);
             }
         });
+
+        // configure broadcast manager for capturing service events
+        LocalBroadcastManager
+            .getInstance(this)
+            .registerReceiver(localReceiver, new IntentFilter(INTENT_FILTER));
     }
 
     @Override
     protected void onPause() {
         super.onPause();
-        if(mAccel!=null) {
-            mSensorMgr.unregisterListener(this, mAccel);
-        }
     }
 
     @Override
     protected void onStart() {
         super.onStart();
+
         mBeaconManager.connect(new BeaconManager.ServiceReadyCallback() {
             @Override
             public void onServiceReady() {
@@ -82,11 +92,16 @@ public class MainActivity extends Activity implements SensorEventListener {
                 }
             }
         });
+
+        //Start our own service for monitoring data transfer between device and android wear
+        Intent intent = new Intent(MainActivity.this, WearListCallListenerService.class);
+        startService(intent);
     }
 
     @Override
     protected void onStop() {
         super.onStop();
+
         try {
             mBeaconManager.stopRanging(ALL_ESTIMOTE_BEACONS);
         } catch (RemoteException e) {
@@ -98,27 +113,8 @@ public class MainActivity extends Activity implements SensorEventListener {
     protected void onDestroy() {
         super.onDestroy();
         mBeaconManager.disconnect();
+
+        // clean up broadcast watches
+        LocalBroadcastManager.getInstance(this).unregisterReceiver(localReceiver);
     }
-
-
-    @Override
-    public void onSensorChanged(SensorEvent event) {
-        if(event.sensor.getType() == Sensor.TYPE_ACCELEROMETER) {
-            String now = String.valueOf(event.timestamp);
-            DecimalFormat df = new DecimalFormat("###.##");
-            float x = event.values[0];
-            float y = event.values[1];
-            float z = event.values[2];
-            String text = df.format(x)+", "+df.format(y)+", "+df.format(z);
-            Log.i(TAG, now+": "+text);
-            mTextView.setText(text);
-        }
-    }
-
-    @Override
-    public void onAccuracyChanged(Sensor sensor, int accuracy) {
-
-    }
-
-
 }
