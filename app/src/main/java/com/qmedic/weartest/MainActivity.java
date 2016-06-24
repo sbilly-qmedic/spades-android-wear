@@ -23,13 +23,18 @@ public class MainActivity extends Activity {
     // intent filter must be the same as the service to capture these events
     private static final String INTENT_FILTER = "SPADES_INTENT_FILTER";
 
+    // The log tag used when recording messages
     private static final String TAG = "SPADES_APP";
+
     private static final String ESTIMOTE_PROXIMITY_UUID = "B9407F30-F5F8-466E-AFF9-25556B57FE6D";
     private static final Region ALL_ESTIMOTE_BEACONS = new Region("regionId", ESTIMOTE_PROXIMITY_UUID, null, null);
 
+    // A text label used to show data on the screen
     private TextView mTextView;
+
     private BeaconManager mBeaconManager = null;
 
+    // A receiver used to define how we process registered service events
     private BroadcastReceiver localReceiver = new BroadcastReceiver() {
         @Override
         public void onReceive(Context context, Intent intent) {
