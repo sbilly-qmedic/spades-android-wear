@@ -28,22 +28,48 @@ import java.util.Calendar;
 import java.util.Date;
 
 public class MainActivity extends Activity implements SensorEventListener {
-
+    // The log tag used when recording messages
     private static final String TAG = "QMEDIC_WEAR";
+
+    // The header line for each CSV report
     private static final String ACCEL_HEADER_LINE = "HEADER_TIMESTAMP,ACCELERATION_X,ACCELERATION_Y,ACCELERATION_Z\n";
+
+    // The temp file name format used when sending files from the watch to the device
     private static final String TEMP_FILE_DATE_FORMAT = "yyyy-MM-dd_HH_mm";
+
+    // The size of the buffer used in writing contents to disk memory
     private static final int BUFFER_SIZE = 4096;
+
+    // The lifetime of the file before deciding to write to a new file
     private static final int FILE_LIFETIME_IN_HR = 1;
 
+
+    // The api client used to communicate with Google Play services
     private GoogleApiClient mGoogleApiClient;
+
+    // The sensor manager used to listen to events of interest
     private SensorManager mSensorMgr;
+
+    // The sensor that is meant to correspond with the accelerometer
     private Sensor mAccel;
+
+    // A text label used to show data on the screen
     private TextView mTextView;
+
+    // The offset used to correct event timestamps
     private long timestampOffsetMS;
 
+
+    // The buffer used to temporarily hold data before writing the contents to file
     private StringBuilder buffer = new StringBuilder();
+
+    // The file that is next in line to be transferred from the watch to the device
     private String fileToQueueForTransfer = null;
+
+    // The output stream writer that the buffer empties it's contents into
     private OutputStreamWriter currentWriter = null;
+
+    // The time at which we should generate a new file
     private Date tempFileExpirationDateTime = null;
 
     @Override
@@ -58,13 +84,14 @@ public class MainActivity extends Activity implements SensorEventListener {
             }
         });
 
+        // register the accelerometer to the sensor manager
         mSensorMgr = (SensorManager) getSystemService(Context.SENSOR_SERVICE);
         mAccel = mSensorMgr.getDefaultSensor(Sensor.TYPE_ACCELEROMETER);
         if (mAccel != null) {
             mSensorMgr.registerListener(this, mAccel, SensorManager.SENSOR_DELAY_NORMAL);
         }
 
-        // instantiate the google client used for communication with Google APIs
+        // instantiate the google client used for communication with Google Play services
         mGoogleApiClient = new GoogleApiClient
                 .Builder(this)
                 .addConnectionCallbacks(new GoogleApiClient.ConnectionCallbacks() {
@@ -92,6 +119,7 @@ public class MainActivity extends Activity implements SensorEventListener {
                         Log.d(TAG, "onConnectionFailed: " + result);
                     }
                 })
+                // connect to wearable API to enable data transfer between watch and device
                 .addApi(Wearable.API)
                 .build();
 
@@ -103,6 +131,7 @@ public class MainActivity extends Activity implements SensorEventListener {
     protected void onStart() {
         super.onStart();
 
+        // connect to Google Play services, this let's us send data between watch and device
         if (mGoogleApiClient != null) {
             mGoogleApiClient.connect();
         }
@@ -121,8 +150,7 @@ public class MainActivity extends Activity implements SensorEventListener {
             mSensorMgr.unregisterListener(this, mAccel);
         }
 
-        if (mGoogleApiClient == null) return;
-        if (mGoogleApiClient.isConnected()) {
+        if (mGoogleApiClient != null && mGoogleApiClient.isConnected()) {
             mGoogleApiClient.disconnect();
         }
     }
@@ -131,14 +159,17 @@ public class MainActivity extends Activity implements SensorEventListener {
     protected void onResume() {
         super.onResume();
 
+        // ensure that the sensor manager is still listener to the accelerometer
         if (mAccel != null) {
             mSensorMgr.registerListener(this, mAccel, SensorManager.SENSOR_DELAY_NORMAL);
         }
 
+        // always check that we're connected to google play services
         if (mGoogleApiClient != null && !mGoogleApiClient.isConnected()) {
             mGoogleApiClient.connect();
         }
 
+        // timestamp offset offset may change on resume, so recalculate it
         long elapsedRealtime = SystemClock.elapsedRealtime();
         long currentTimeMillis = System.currentTimeMillis();
         timestampOffsetMS = currentTimeMillis - elapsedRealtime;
@@ -160,9 +191,11 @@ public class MainActivity extends Activity implements SensorEventListener {
 
     @Override
     public void onSensorChanged(SensorEvent event) {
-        String text = null;
         Date date = getDateFromEvent(event);
         SimpleDateFormat sdf = new SimpleDateFormat("yyyy/MM/dd HH:mm:ss.SSS");
+
+        // parse event data
+        String text = null;
         switch (event.sensor.getType()) {
             case Sensor.TYPE_ACCELEROMETER:
                 float x = event.values[0];
@@ -187,10 +220,12 @@ public class MainActivity extends Activity implements SensorEventListener {
                 break;
         }
 
+        // show on screen
         if (mTextView != null) {
             mTextView.setText(text);
         }
 
+        // write message to buffer (or to file)
         if (date != null && text != null) {
             writeMessage(date, text);
         }
