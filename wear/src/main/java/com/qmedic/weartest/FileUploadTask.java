@@ -28,19 +28,34 @@ import java.util.zip.GZIPOutputStream;
  * Async task used for queuing a file transfer
  */
 public class FileUploadTask extends AsyncTask<Void, Void, Void> {
+    // The size of the buffer used when copying data into the compressed file
     private static final int BUFFER_SIZE = 8192;
+
+    // The log tag used when recording messages
     private static final String FILE_TRANSFER_TAG = "FILE_UPLOAD_TASK";
+
+    // The filename extension of compressed file
     private static final String EXTENSION = "gz";
+
+    // The asset name used to track which files are associated with our app's service
     private static final String SERVICE_CALLED_WEAR = "QMEDIC_DATA_MESSAGE";
 
-    private GoogleApiClient mGoogleApiClient;
-    private String filename;
-    private String compressedFile;
+    // The api client used to connect to Google play API
+    private final GoogleApiClient mGoogleApiClient;
+
+    // The name of the file to transfer
+    private final String filename;
+
+    // The name of the compressed file
+    private final String compressedFile;
+
+    // The remaining buffer contents that are to be written to file
     private StringBuilder bufferToEmpty = null;
 
     public FileUploadTask(final GoogleApiClient client, final File fileDir, final String filename) {
         mGoogleApiClient = client;
 
+        // prepend the file path to the file name
         this.filename = fileDir.getAbsolutePath() + "/" + filename;
         this.compressedFile = this.filename + ".gz";
     }
@@ -72,11 +87,18 @@ public class FileUploadTask extends AsyncTask<Void, Void, Void> {
         return null;
     }
 
+    /**
+     * Check that the file exists
+     * @return True, if the file indeed exist. False if it doesn't or if file is actually a directory
+     */
     private boolean checkIfFileExists() {
         File file = new File(filename);
         return file.exists() && !file.isDirectory();
     }
 
+    /**
+     * Empties out the remaining buffer into the specified filename
+     */
     private void emptyOutBuffer() {
         try {
 
@@ -181,6 +203,11 @@ public class FileUploadTask extends AsyncTask<Void, Void, Void> {
         });
     }
 
+    /**
+     * Delete the file from the watch device
+     * @param filename - The name of the file to be deleted
+     * @return - True if the file was successfully deleted. False if deletion failed or file doesn't exist
+     */
     private boolean deleteFile(final String filename) {
         File file = new File(filename);
         if (!file.exists()) return false;
